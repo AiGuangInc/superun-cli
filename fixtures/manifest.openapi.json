@@ -1,0 +1,77 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "demo app edge functions", "version": "1.0.0" },
+  "servers": [{ "url": "https://demo.db.superun.com/functions/v1" }],
+  "tags": [
+    { "name": "orders", "description": "下单 / 取消 / 查询" },
+    { "name": "email", "description": "邮件通知" }
+  ],
+  "paths": {
+    "/create-order": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "下单",
+        "description": "为当前登录用户创建一笔订单。",
+        "tags": ["orders"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderInput" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "下单成功",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderResult" } }
+            }
+          }
+        }
+      }
+    },
+    "/send-email": {
+      "post": {
+        "operationId": "sendEmail",
+        "summary": "发模板邮件",
+        "tags": ["email"],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["to"],
+                "properties": {
+                  "to": { "type": "string", "format": "email" },
+                  "template": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "202": { "description": "已入队" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "CreateOrderInput": {
+        "type": "object",
+        "required": ["sku", "qty"],
+        "properties": {
+          "sku": { "type": "string", "description": "商品编码" },
+          "qty": { "type": "integer", "minimum": 1, "description": "数量" }
+        }
+      },
+      "CreateOrderResult": {
+        "type": "object",
+        "properties": { "orderId": { "type": "string" } }
+      }
+    }
+  }
+}

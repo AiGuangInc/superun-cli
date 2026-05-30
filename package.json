@@ -1,0 +1,58 @@
+{
+  "name": "superun-cli",
+  "version": "0.0.1",
+  "description": "A universal, configuration-driven CLI that calls any Supabase-compatible backend's Edge Functions and PostgREST as the current user. Run init with a URL and anon key to get started, manage multiple projects, and have function descriptions fetched from the backend at runtime.",
+  "type": "module",
+  "bin": {
+    "superun": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "npm run clean && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@readme/openapi-parser": "^6.1.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AiGuangInc/superun-cli.git"
+  },
+  "homepage": "https://github.com/AiGuangInc/superun-cli#readme",
+  "bugs": {
+    "url": "https://github.com/AiGuangInc/superun-cli/issues"
+  },
+  "keywords": [
+    "supabase",
+    "cli",
+    "postgrest",
+    "edge-functions",
+    "openapi"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "Apache-2.0"
+}
