@@ -22,9 +22,31 @@ superun whoami --json       # current identity, or "Not logged in"
 - Not logged in? The user must authenticate: `superun login --browser` (or `--token <jwt>`). Do not attempt to fabricate tokens.
 - Sessions refresh automatically. A `401` means the session is unrecoverable (expired refresh token, or a token from a foreign auth system) — tell the user to `superun login` again.
 
+## Prefer Edge Functions over raw DB writes
+
+When a task can be done through an Edge Function (`superun fn`), **prefer that over a
+direct `db insert/update/delete`.** Functions are the app's intended entry point: they
+encapsulate business logic — input validation, computed/derived columns, multi-table
+consistency, and side effects (sending mail, firing webhooks, writing audit rows) — plus
+invariants that Row Level Security alone does not enforce. Writing rows directly bypasses
+all of that and can leave data in a state the application considers invalid, even though
+RLS permitted the write.
+
+So before reaching for a `db` write:
+
+1. Discover the available functions (`superun fn`) and check whether one covers the task.
+2. If a function exists, use it — read its `--help` contract, then invoke it.
+3. Use `db` writes only for operations **no function covers**, and say so to the user
+   before mutating (this is ad-hoc, unguarded data manipulation).
+
+`db` reads (`select`, `tables`, `rpc` for read-only functions) are fine for inspection
+and queries at any time — this preference is about **mutations**.
+
 ## Database (PostgREST)
 
-Always start by discovering the schema; never guess table or column names.
+Use this to **read and inspect** data freely; for **writes**, first see
+[Prefer Edge Functions over raw DB writes](#prefer-edge-functions-over-raw-db-writes)
+above. Always start by discovering the schema; never guess table or column names.
 
 ```bash
 superun db tables                                   # list exposed tables & RPCs (live introspection)
@@ -74,6 +96,7 @@ A project can be referenced by either its alias or its id (`superun app list` sh
 
 ## Don't
 
+- Don't reach for a `db` write when an Edge Function covers the task — prefer `fn` (see above).
 - Don't run `--all` writes, `app remove`, or `logout` without explicit user intent.
 - Don't ask for or paste raw tokens/keys — the anon key and session are managed by superun.
 - Don't invent table/column/function names; introspect first (`db tables`, `fn`).
