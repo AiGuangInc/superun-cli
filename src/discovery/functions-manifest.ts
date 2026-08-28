@@ -23,7 +23,7 @@ async function fetchDoc(app: AppConfig, src: Source): Promise<unknown> {
   if (src.kind === "file") return JSON.parse(readFileSync(src.value, "utf8"));
   // 指向本 project 的 URL:走统一 client 带 apikey(+ 可能的 session)
   if (src.value.startsWith(app.baseUrl)) {
-    const { status, body } = await request(app, loadSession(app.id), {
+    const { status, body } = await request(app, loadSession(app.scopeId), {
       path: src.value.slice(app.baseUrl.length),
       auth: false,
     });
@@ -38,7 +38,7 @@ async function fetchDoc(app: AppConfig, src: Source): Promise<unknown> {
 
 /** 本地没有函数缓存时,懒拉一次(供 fn 命令树构建 / 补全用)。 */
 export async function ensureManifest(app: AppConfig): Promise<void> {
-  if (!existsSync(join(app.dir, "functions", "index.json"))) {
+  if (!existsSync(join(app.runtimeDir, "functions", "index.json"))) {
     await refreshFunctions(app);
   }
 }
@@ -49,7 +49,7 @@ export async function refreshFunctions(app: AppConfig, override?: string): Promi
   const doc = await fetchDoc(app, src);
   const { index, functions } = await compileFromDoc(doc);
 
-  const outDir = join(app.dir, "functions");
+  const outDir = join(app.runtimeDir, "functions");
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, "index.json"), JSON.stringify(index, null, 2) + "\n");

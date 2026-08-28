@@ -17,6 +17,7 @@ English · [简体中文](README.zh-CN.md)
 - **Identity-aware** — Every request runs as the logged-in user. Row Level Security and `verifyJwt` Edge Functions are enforced exactly as in production.
 - **Typed Edge Functions** — The backend publishes an OpenAPI 3.1 document; superun compiles it into a local cache and exposes each function as a first-class command with input/output schemas.
 - **Multi-project** — Manage and switch between any number of projects; each keeps an isolated configuration, session, and function cache.
+- **Production/debug targets** — A project can also configure a separate debug Supabase URL and anon key. Once configured, debug is the default; production remains available per command. Sessions and runtime caches are isolated between targets.
 - **Browser login** — Sign in through your project's built-in Supabase OAuth 2.1 authorization server (Authorization Code + PKCE, with Dynamic Client Registration).
 - **Shell completion** — Bash, Zsh, and Fish; completes commands, function tags, function names, and project aliases from the local cache, with no network calls.
 
@@ -36,6 +37,10 @@ The `superun` binary is added to your `PATH` on macOS, Windows, and Linux.
 # 1. Register a backend (interactive, or pass flags directly)
 superun init --name shop --url https://<project>.supabase.co --anon-key <anon-key>
 
+# When the project has a separate debug Supabase (debug becomes the default)
+superun init --name shop --url https://<production> --anon-key <production-key> \
+  --debug-url https://<debug> --debug-anon-key <debug-key>
+
 # 2. Authenticate as a user
 superun login --browser            # via the project's OAuth 2.1 server
 # or: superun login --token <jwt>  # paste an existing access token
@@ -52,15 +57,16 @@ superun fn <tag> <name> --data '{...}'
 ### Projects
 
 ```
-superun init  --url <url> --anon-key <key> [--name <alias>]   Register a backend and make it active
+superun init  --url <url> --anon-key <key> [--debug-url <url> --debug-anon-key <key>] Register a backend and make it active
 superun app list                                              List registered projects (* = active)
 superun app use <alias|id>                                    Switch the active project
 superun app show                                              Show the active project's configuration
-superun app set [--name|--url|--anon-key|--manifest <v>]      Update configuration fields
+superun app set [--name|--url|--anon-key|--debug-url|--debug-anon-key|--environment <v>] Update configuration fields
 superun app refresh                                           Fetch & compile the backend's Edge Function manifest
 superun app remove <alias|id>                                 Remove a project (and its cached session)
 superun app where                                             Print the configuration directory in use
 superun -a <alias|id> <command>                               Target a specific project for one command
+superun -e <debug|production> <command>                       Target an environment for one command
 ```
 
 ### Authentication
@@ -145,7 +151,9 @@ The compiled cache is layered so that both humans and AI agents read only what t
 
 Resolution order: `APP_CLI_DIR` → `-a/--app` override → nearest `.app-cli/` directory → the global active project.
 
-Configuration lives in the per-user config directory (Windows `%APPDATA%`, macOS/Linux `~/.config/superun`). Override the root with `SUPERUN_HOME`, or supply the anon key via `APP_CLI_ANON_KEY`.
+Configuration lives in the per-user config directory (Windows `%APPDATA%`, macOS/Linux `~/.config/superun`). Production uses `url` / `anonKey`; debug adds `debugUrl` / `debugAnonKey`. When both debug fields exist, debug is the default. Change the project default with `app set --environment production|debug`, or override one command with the global `-e/--env` option. Login sessions, OAuth clients, PostgREST schemas, and Edge Function caches are isolated between production and debug.
+
+Override the config root with `SUPERUN_HOME`. Credentials can also be supplied with `APP_CLI_ANON_KEY`, `APP_CLI_DEBUG_URL`, and `APP_CLI_DEBUG_ANON_KEY`; select a target with `APP_CLI_ENVIRONMENT`.
 
 ## Use with an AI agent
 

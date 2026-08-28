@@ -62,8 +62,10 @@ export function registerLogin(program: Command): void {
       } else {
         throw new Error("Specify a login method: --token / --password / --browser (see `superun login --help`)");
       }
-      saveSession(app.id, session);
-      console.log(`Logged in (strategy=${session.strategy}). Session saved; subsequent commands will use it automatically.`);
+      saveSession(app.scopeId, session);
+      console.log(
+        `Logged in to ${app.environment} (strategy=${session.strategy}). Session saved; subsequent ${app.environment} commands will use it automatically.`,
+      );
     });
 
   program
@@ -71,7 +73,7 @@ export function registerLogin(program: Command): void {
     .description("clear the local session")
     .action(() => {
       const app = loadApp();
-      clearSession(app.id);
-      console.log("Logged out");
+      clearSession(app.scopeId);
+      console.log(`Logged out from ${app.environment}`);
     });
 }

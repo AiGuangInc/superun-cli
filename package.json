@@ -1,13 +1,14 @@
 {
   "name": "superun-cli",
-  "version": "0.0.1",
-  "description": "A universal, configuration-driven CLI that calls any Supabase-compatible backend's Edge Functions and PostgREST as the current user. Run init with a URL and anon key to get started, manage multiple projects, and have function descriptions fetched from the backend at runtime.",
+  "version": "0.0.2",
+  "description": "A universal, configuration-driven CLI for calling Supabase-compatible PostgREST and Edge Functions across isolated production and debug targets.",
   "type": "module",
   "bin": {
     "superun": "dist/cli.js"
   },
   "files": [
     "dist",
+    "skills",
     "NOTICE"
   ],
   "engines": {

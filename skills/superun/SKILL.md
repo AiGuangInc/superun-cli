@@ -1,26 +1,30 @@
 ---
 name: superun
-description: Operate a Supabase backend — PostgREST database and Edge Functions — as the authenticated user, through the `superun` CLI. Use when the user wants to query, insert, update, or delete rows in their Supabase database; call an Edge Function; inspect tables or RPCs; or otherwise act against their registered Supabase app from the command line. Requires the `superun` CLI installed and a project registered.
+description: Operate a registered Supabase backend's production or debug target through the `superun` CLI. Use when the user wants to inspect tables or RPCs, query or mutate rows, call an Edge Function, select an environment, or otherwise act against their registered app. Requests use the selected target's logged-in session when present and its anon role otherwise. Requires the `superun` CLI installed and a project registered.
 ---
 
 # superun
 
-`superun` is a CLI that operates any Supabase-compatible backend as the **currently
-logged-in user**. Every database call runs under that user's Row Level Security, and
-`verifyJwt` Edge Functions receive their token. Use it to drive a user's Supabase app
-without writing HTTP requests by hand.
+`superun` is a CLI that operates any Supabase-compatible backend. Requests use the
+selected production/debug target's logged-in user session when one exists; otherwise
+they run as that target's anon role. Row Level Security still applies, and `verifyJwt`
+Edge Functions receive the user token only when logged in. Use it instead of writing
+HTTP requests by hand.
 
 ## Before acting — orient yourself
 
 ```bash
 superun --version          # confirm it's installed
 superun app list           # which projects are registered (* = active)
+superun app show           # confirm the selected production/debug target and URL
 superun whoami --json       # current identity, or "Not logged in"
 ```
 
-- No active project? The user must register one: `superun init --url <url> --anon-key <key> [--name <alias>]`.
-- Not logged in? The user must authenticate: `superun login --browser` (or `--token <jwt>`). Do not attempt to fabricate tokens.
+- No active project? Register one with `superun init --url <url> --anon-key <key> [--debug-url <url> --debug-anon-key <key>] [--name <alias>]`.
+- To add debug to an existing project, use `superun app set --debug-url <url> --debug-anon-key <key>`. Supplying the complete pair makes debug the project default.
+- Not logged in? Public/anon operations may still work. For user-scoped data or `verifyJwt` functions, authenticate with `superun login --browser` (or `--token <jwt>`). Never fabricate a token.
 - Sessions refresh automatically. A `401` means the session is unrecoverable (expired refresh token, or a token from a foreign auth system) — tell the user to `superun login` again.
+- If a project has a complete debug target, superun uses debug by default. Use `-e production` only when the user explicitly wants to inspect or operate production. Each target has its own login session, OAuth client, PostgREST schema cache, and Edge Function cache.
 
 ## Prefer Edge Functions over raw DB writes
 
@@ -82,17 +86,27 @@ only if the user explicitly wants to bypass input-schema checks.
 
 ```bash
 superun -a <alias|id> <command>   # run one command against a specific project
+superun -e debug <command>        # override the environment for one command
 superun app use <alias|id>        # change the active project for subsequent commands
+superun app set --environment debug|production  # change the project's default target
 ```
 
 A project can be referenced by either its alias or its id (`superun app list` shows both).
+Keep the same `-a` and `-e` target throughout a multi-command workflow, including
+`login`, `whoami`, discovery, the action itself, and cleanup. Run `app show` before a
+mutation when the target is not already obvious. Never assume a production session or
+cached schema applies to debug, or vice versa.
 
 ## Interpreting output
 
-- `db` / `fn` commands print `HTTP <status>` followed by the JSON body. Parse the JSON
-  for results; on a non-2xx status, surface the error body to the user rather than
-  retrying blindly.
-- `superun whoami --json` emits machine-readable identity claims.
+- `db` / `fn` commands print `HTTP <status>` followed by the JSON body. Parse both. On
+  a non-2xx status, surface the error body rather than retrying blindly.
+- A mutation's HTTP status alone is not proof that data changed. In particular,
+  `UPDATE` / `DELETE` may return `HTTP 200` with `[]` when RLS or grants make zero rows
+  visible or writable. Require returned rows and, when correctness matters, re-select
+  using the same precise filter. Verify temporary test data is actually gone.
+- `superun whoami --json` emits the selected environment plus machine-readable identity
+  claims. `Not logged in` means subsequent requests use the anon role.
 
 ## Don't
 

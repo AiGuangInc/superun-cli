@@ -13,7 +13,7 @@ function cacheFile(appId: string): string {
 
 /** 首次调用用 anonKey 拉 /rest/v1/ 的 OpenAPI(PostgREST 出 Swagger v2),本地缓存。 */
 export async function getPgrestSpec(app: AppConfig, session: Session | null, force = false): Promise<any> {
-  const f = cacheFile(app.id);
+  const f = cacheFile(app.scopeId);
   if (!force && existsSync(f) && Date.now() - statSync(f).mtimeMs < TTL_MS) {
     return JSON.parse(readFileSync(f, "utf8"));
   }

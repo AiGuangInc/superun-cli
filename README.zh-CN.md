@@ -17,6 +17,7 @@
 - **身份感知** —— 每个请求都以登录用户身份发出;Row Level Security 与 `verifyJwt` Edge Function 的鉴权与生产环境完全一致。
 - **类型化 Edge Functions** —— 后端发布 OpenAPI 3.1 文档,superun 将其编译为本地缓存,把每个函数暴露为带输入/输出 schema 的一等命令。
 - **多项目** —— 管理并切换任意多个项目,各自的配置、会话与函数缓存相互隔离。
+- **生产/debug 双环境** —— 同一项目可额外配置 debug Supabase URL 与 anon key；配置完整后默认走 debug，也可按命令临时切回 production。两套会话与运行时缓存完全隔离。
 - **浏览器登录** —— 通过项目内置的 Supabase OAuth 2.1 授权服务器登录(授权码 + PKCE,支持动态客户端注册)。
 - **Shell 补全** —— 支持 Bash / Zsh / Fish,从本地缓存补全命令、函数标签、函数名与项目别名,全程不触网。
 
@@ -36,6 +37,10 @@ npm install -g superun-cli
 # 1. 注册后端(交互式,或直接传参)
 superun init --name shop --url https://<project>.supabase.co --anon-key <anon-key>
 
+# 项目有独立 debug Supabase 时（配置后默认走 debug）
+superun init --name shop --url https://<production> --anon-key <production-key> \
+  --debug-url https://<debug> --debug-anon-key <debug-key>
+
 # 2. 以用户身份登录
 superun login --browser            # 通过项目的 OAuth 2.1 服务器
 # 或:superun login --token <jwt>   # 粘贴已有的 access token
@@ -52,15 +57,16 @@ superun fn <tag> <name> --data '{...}'
 ### 项目管理
 
 ```
-superun init  --url <url> --anon-key <key> [--name <别名>]   注册后端并设为活跃
+superun init  --url <url> --anon-key <key> [--debug-url <url> --debug-anon-key <key>]   注册后端并设为活跃
 superun app list                                             列出已注册项目(* 为活跃)
 superun app use <别名|id>                                    切换活跃项目
 superun app show                                             查看活跃项目配置
-superun app set [--name|--url|--anon-key|--manifest <值>]    更新配置字段
+superun app set [--name|--url|--anon-key|--debug-url|--debug-anon-key|--environment <值>] 更新配置字段
 superun app refresh                                          拉取并编译后端的 Edge Function manifest
 superun app remove <别名|id>                                 删除项目(连同其会话缓存)
 superun app where                                            打印当前使用的配置目录
 superun -a <别名|id> <命令>                                  本次命令临时指向指定项目
+superun -e <debug|production> <命令>                          本次命令临时指定环境
 ```
 
 ### 认证
@@ -145,7 +151,9 @@ superun fn <tag> <name>
 
 解析顺序:`APP_CLI_DIR` → `-a/--app` 覆盖 → 就近的 `.app-cli/` 目录 → 全局活跃项目。
 
-配置存于用户级配置目录(Windows `%APPDATA%`,macOS/Linux `~/.config/superun`)。可用 `SUPERUN_HOME` 覆盖根目录,或通过 `APP_CLI_ANON_KEY` 提供 anon key。
+配置存于用户级配置目录(Windows `%APPDATA%`,macOS/Linux `~/.config/superun`)。生产环境使用 `url` / `anonKey`；debug 环境额外使用 `debugUrl` / `debugAnonKey`。debug 两项都存在时默认走 debug；可用 `app set --environment production|debug` 修改项目默认值，或用全局 `-e/--env` 只覆盖当前命令。生产与 debug 的登录会话、OAuth 客户端、PostgREST schema 和 Edge Function 缓存相互隔离。
+
+可用 `SUPERUN_HOME` 覆盖配置根目录。凭据也可分别通过 `APP_CLI_ANON_KEY`、`APP_CLI_DEBUG_URL`、`APP_CLI_DEBUG_ANON_KEY` 提供，并可用 `APP_CLI_ENVIRONMENT` 选择环境。
 
 ## 配合 AI agent 使用
 

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import type { AppConfig } from "../config/app.js";
@@ -201,7 +201,7 @@ async function dynamicRegister(app: AppConfig, registrationUrl: string, port: nu
 }
 
 function clientCacheFile(app: AppConfig): string {
-  return join(app.dir, "oauth-client.json");
+  return join(app.runtimeDir, "oauth-client.json");
 }
 function readCachedClientId(app: AppConfig, port: number): string | undefined {
   const f = clientCacheFile(app);
@@ -214,6 +214,7 @@ function readCachedClientId(app: AppConfig, port: number): string | undefined {
   }
 }
 function writeCachedClientId(app: AppConfig, port: number, clientId: string): void {
+  mkdirSync(app.runtimeDir, { recursive: true });
   writeFileSync(clientCacheFile(app), JSON.stringify({ client_id: clientId, port }, null, 2) + "\n");
 }
 

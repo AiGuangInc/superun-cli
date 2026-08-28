@@ -9,7 +9,7 @@ export function registerWhoami(program: Command): void {
     .option("--json", "machine-readable output")
     .action((opts) => {
       const app = loadApp();
-      const s = loadSession(app.id);
+      const s = loadSession(app.scopeId);
       if (!s) {
         console.log("Not logged in");
         process.exitCode = 1;
@@ -17,10 +17,11 @@ export function registerWhoami(program: Command): void {
       }
       const claims = decodeJwt(s.access_token);
       if (opts.json) {
-        console.log(JSON.stringify({ strategy: s.strategy, claims }, null, 2));
+        console.log(JSON.stringify({ environment: app.environment, strategy: s.strategy, claims }, null, 2));
         return;
       }
-      console.log(`strategy: ${s.strategy ?? "?"}`);
+      console.log(`environment: ${app.environment}`);
+      console.log(`strategy:    ${s.strategy ?? "?"}`);
       console.log(`sub:      ${claims?.sub ?? "-"}`);
       console.log(`role:     ${claims?.role ?? "-"}`);
       console.log(`email:    ${claims?.email ?? "-"}`);

@@ -26,7 +26,7 @@ function contractHelp(tree: FunctionsTree, name: string): string {
 
 async function callFunction(app: AppConfig, tree: FunctionsTree, name: string, opts: any): Promise<void> {
   const fnDef = tree.resolveLeaf(name);
-  const session = loadSession(app.id);
+  const session = loadSession(app.scopeId);
   if (fnDef.verifyJwt && !session) throw new Error(`Function "${name}" requires login (verifyJwt=true); run \`superun login\` first`);
 
   let body: unknown;
@@ -61,7 +61,7 @@ async function callFunction(app: AppConfig, tree: FunctionsTree, name: string, o
  *   superun fn <tag> <函数>      调用(--data/--file/--no-validate;--help 看契约)
  */
 export function buildFnCommands(fnCmd: Command, app: AppConfig): void {
-  const tree = new FunctionsTree(app.dir);
+  const tree = new FunctionsTree(app.runtimeDir);
   const groups = tree.listGroups();
   const fns = tree.listFunctions();
 

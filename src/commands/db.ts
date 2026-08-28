@@ -43,7 +43,7 @@ export function registerDb(program: Command): void {
     .option("--refresh", "force a cache refresh")
     .action(async (opts) => {
       const app = loadApp();
-      const spec = await getPgrestSpec(app, loadSession(app.id), !!opts.refresh);
+      const spec = await getPgrestSpec(app, loadSession(app.scopeId), !!opts.refresh);
       const tables = listTables(spec);
       const rpcs = listRpcs(spec);
       console.log("# tables");
@@ -65,7 +65,7 @@ export function registerDb(program: Command): void {
       const query: Record<string, string> = { select: opts.select, ...eqToQuery(opts.eq) };
       if (opts.order) query.order = opts.order;
       if (opts.limit) query.limit = String(opts.limit);
-      const { status, body } = await request(app, loadSession(app.id), {
+      const { status, body } = await request(app, loadSession(app.scopeId), {
         path: `/rest/v1/${table}`,
         query,
         auth: true,
@@ -81,7 +81,7 @@ export function registerDb(program: Command): void {
       const app = loadApp();
       const body = readBody(opts);
       if (body === undefined) throw new Error("provide the data to insert via --data or --file");
-      const { status, body: res } = await request(app, loadSession(app.id), {
+      const { status, body: res } = await request(app, loadSession(app.scopeId), {
         method: "POST",
         path: `/rest/v1/${table}`,
         body,
@@ -105,7 +105,7 @@ export function registerDb(program: Command): void {
       }
       const body = readBody(opts);
       if (body === undefined) throw new Error("provide the fields to update via --data or --file");
-      const { status, body: res } = await request(app, loadSession(app.id), {
+      const { status, body: res } = await request(app, loadSession(app.scopeId), {
         method: "PATCH",
         path: `/rest/v1/${table}`,
         query: filters,
@@ -126,7 +126,7 @@ export function registerDb(program: Command): void {
       if (!Object.keys(filters).length && !opts.all) {
         throw new Error("delete requires at least one --eq; pass --all to delete the whole table");
       }
-      const { status, body: res } = await request(app, loadSession(app.id), {
+      const { status, body: res } = await request(app, loadSession(app.scopeId), {
         method: "DELETE",
         path: `/rest/v1/${table}`,
         query: filters,
@@ -142,7 +142,7 @@ export function registerDb(program: Command): void {
     .option("--file <path>", "read JSON from a file")
     .action(async (name: string, opts) => {
       const app = loadApp();
-      const { status, body: res } = await request(app, loadSession(app.id), {
+      const { status, body: res } = await request(app, loadSession(app.scopeId), {
         method: "POST",
         path: `/rest/v1/rpc/${name}`,
         body: readBody(opts) ?? {},

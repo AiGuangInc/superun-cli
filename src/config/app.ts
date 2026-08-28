@@ -10,6 +10,17 @@ export interface AppConfig {
   /** Supabase API base URL —— 官方(*.supabase.co)或任意自建实例均可。 */
   baseUrl: string;
   anonKey: string;
+  /** 本次命令实际使用的环境。 */
+  environment: AppEnvironment;
+  /** 会话与其他用户级缓存的隔离键；production 保持旧 id，debug 使用独立子键。 */
+  scopeId: string;
+  /** Edge Function / OAuth 等项目内运行时缓存目录，按环境隔离。 */
+  runtimeDir: string;
+  /** 项目已配置的运行目标。 */
+  targets: {
+    production: AppTarget;
+    debug?: AppTarget;
+  };
   /** edge function OpenAPI manifest 来源(URL / 本地文件 / 函数名)。 */
   manifest?: string;
   /** 浏览器登录(OAuth2 授权码 + PKCE)的授权端点。 */
@@ -22,10 +33,33 @@ export interface AppConfig {
   dir: string;
 }
 
+export type AppEnvironment = "production" | "debug";
+
+export interface AppTarget {
+  baseUrl: string;
+  anonKey: string;
+}
+
 /** 本次命令的 app 覆盖(由 `-a/--app` 设置,见 program.ts),优先级高于活跃 app。 */
 let overrideId: string | null = null;
 export function setActiveOverride(id: string | null): void {
   overrideId = id;
+}
+
+/** 本次命令的环境覆盖(由 `-e/--env` 设置)。 */
+let overrideEnvironment: AppEnvironment | null = null;
+
+export function normalizeEnvironment(value: unknown, label = "environment"): AppEnvironment {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "production" || normalized === "prod") return "production";
+  if (normalized === "debug" || normalized === "test" || normalized === "testing") return "debug";
+  throw new Error(`${label} must be production or debug: ${value || "(empty)"}`);
+}
+
+export function setEnvironmentOverride(environment: string | null): void {
+  overrideEnvironment = environment == null ? null : normalizeEnvironment(environment, "--env");
 }
 
 /** 配置发现顺序:APP_CLI_DIR(env) → `-a/--app` 覆盖 → 向上找 `.app-cli/` → 活跃 app。 */
@@ -108,15 +142,32 @@ export interface AppMeta {
   id: string;
   name?: string;
   baseUrl: string;
+  environment: AppEnvironment;
+  debugConfigured: boolean;
 }
 
 export function listAppMetas(): AppMeta[] {
   return listApps().map((id) => {
     try {
       const raw = JSON.parse(readFileSync(join(appDirFor(id), "app.json"), "utf8")) as Record<string, unknown>;
-      return { id, name: raw.name as string | undefined, baseUrl: ((raw.url ?? raw.baseUrl) as string | undefined) ?? "" };
+      const productionUrl = ((raw.url ?? raw.baseUrl) as string | undefined) ?? "";
+      const debugUrl = raw.debugUrl as string | undefined;
+      const hasDebugConfig = Boolean(debugUrl || raw.debugAnonKey);
+      const debugConfigured = Boolean(debugUrl && raw.debugAnonKey);
+      const environment = raw.environment
+        ? normalizeEnvironment(raw.environment, "app.json environment")
+        : hasDebugConfig
+          ? "debug"
+          : "production";
+      return {
+        id,
+        name: raw.name as string | undefined,
+        baseUrl: environment === "debug" && debugUrl ? debugUrl : productionUrl,
+        environment,
+        debugConfigured,
+      };
     } catch {
-      return { id, baseUrl: "" };
+      return { id, baseUrl: "", environment: "production", debugConfigured: false };
     }
   });
 }
@@ -132,15 +183,41 @@ export function loadApp(start?: string): AppConfig {
   const dir = findAppDir(start);
   const raw = JSON.parse(readFileSync(join(dir, "app.json"), "utf8")) as Record<string, unknown>;
   const id = (raw.id as string | undefined) ?? basename(dir);
-  const anonKey = process.env.APP_CLI_ANON_KEY ?? (raw.anonKey as string | undefined);
-  const baseUrl = ((raw.url ?? raw.baseUrl) as string | undefined)?.replace(/\/+$/, "");
-  if (!baseUrl) throw new Error("app.json is missing url");
-  if (!anonKey) throw new Error("app.json is missing anonKey (or set APP_CLI_ANON_KEY)");
+  const production: AppTarget = {
+    baseUrl: ((raw.url ?? raw.baseUrl) as string | undefined)?.replace(/\/+$/, "") ?? "",
+    anonKey: process.env.APP_CLI_ANON_KEY ?? (raw.anonKey as string | undefined) ?? "",
+  };
+  if (!production.baseUrl) throw new Error("app.json is missing url");
+  if (!production.anonKey) throw new Error("app.json is missing anonKey (or set APP_CLI_ANON_KEY)");
+
+  const debugUrl = (process.env.APP_CLI_DEBUG_URL ?? (raw.debugUrl as string | undefined))?.replace(/\/+$/, "");
+  const debugAnonKey = process.env.APP_CLI_DEBUG_ANON_KEY ?? (raw.debugAnonKey as string | undefined);
+  const hasDebugConfig = Boolean(debugUrl || debugAnonKey);
+  const debug = debugUrl && debugAnonKey ? { baseUrl: debugUrl, anonKey: debugAnonKey } : undefined;
+  const configuredEnvironment = raw.environment
+    ? normalizeEnvironment(raw.environment, "app.json environment")
+    : undefined;
+  const environment =
+    overrideEnvironment ??
+    (process.env.APP_CLI_ENVIRONMENT
+      ? normalizeEnvironment(process.env.APP_CLI_ENVIRONMENT, "APP_CLI_ENVIRONMENT")
+      : configuredEnvironment ?? (hasDebugConfig ? "debug" : "production"));
+  if (environment === "debug" && !debug) {
+    const missing = [!debugUrl && "debugUrl/APP_CLI_DEBUG_URL", !debugAnonKey && "debugAnonKey/APP_CLI_DEBUG_ANON_KEY"]
+      .filter(Boolean)
+      .join(" and ");
+    throw new Error(`Debug environment is selected but missing ${missing}`);
+  }
+  const target = environment === "debug" ? debug! : production;
   return {
     id,
     name: raw.name as string | undefined,
-    baseUrl,
-    anonKey,
+    baseUrl: target.baseUrl,
+    anonKey: target.anonKey,
+    environment,
+    scopeId: environment === "production" ? id : `${id}/debug`,
+    runtimeDir: environment === "production" ? dir : join(dir, "environments", "debug"),
+    targets: { production, ...(debug ? { debug } : {}) },
     manifest: raw.manifest as string | undefined,
     authorizeUrl: raw.authorizeUrl as string | undefined,
     tokenUrl: raw.tokenUrl as string | undefined,

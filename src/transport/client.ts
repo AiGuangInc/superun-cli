@@ -50,7 +50,7 @@ async function refreshSession(app: AppConfig, s: Session): Promise<Session | nul
       expires_at: b.expires_at ?? (b.expires_in ? Math.floor(Date.now() / 1000) + b.expires_in : s.expires_at),
       strategy: s.strategy,
     };
-    saveSession(app.id, next);
+    saveSession(app.scopeId, next);
     return next;
   } catch {
     return null;

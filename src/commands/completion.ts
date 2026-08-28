@@ -1,21 +1,46 @@
 import type { Command } from "commander";
 import { FunctionsTree } from "../config/functions.js";
-import { listAppMetas, loadApp } from "../config/app.js";
+import { listAppMetas, loadApp, resolveRef, setActiveOverride, setEnvironmentOverride } from "../config/app.js";
 import { listRpcs, listTables, readCachedSpec } from "../discovery/pgrest.js";
 
 const TOP = ["init", "login", "logout", "whoami", "db", "fn", "app"];
 const APP_SUB = ["list", "use", "remove", "show", "set", "where", "refresh"];
 
-/** 去掉前导的全局选项 `-a <ref>` / `--app[=]`,得到“命令位”序列。 */
+/** 补全后端收到的是上下文词，先应用其中的全局目标覆盖。 */
+function applyGlobalOverrides(tokens: string[]): void {
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if ((token === "-a" || token === "--app") && tokens[i + 1]) {
+      const ref = tokens[++i];
+      setActiveOverride(resolveRef(ref) ?? ref);
+      continue;
+    }
+    if (token.startsWith("--app=")) {
+      const ref = token.slice("--app=".length);
+      if (ref) setActiveOverride(resolveRef(ref) ?? ref);
+      continue;
+    }
+    if ((token === "-e" || token === "--env") && tokens[i + 1]) {
+      setEnvironmentOverride(tokens[++i]);
+      continue;
+    }
+    if (token.startsWith("--env=")) {
+      const environment = token.slice("--env=".length);
+      if (environment) setEnvironmentOverride(environment);
+    }
+  }
+}
+
+/** 去掉全局 app / environment 选项，得到“命令位”序列。 */
 function stripGlobals(tokens: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-    if (t === "-a" || t === "--app") {
+    if (t === "-a" || t === "--app" || t === "-e" || t === "--env") {
       i++;
       continue;
     }
-    if (t.startsWith("--app=")) continue;
+    if (t.startsWith("--app=") || t.startsWith("--env=")) continue;
     out.push(t);
   }
   return out;
@@ -46,7 +71,7 @@ function candidatesFor(contextRaw: string[]): string[] {
 
   if (cmd === "fn") {
     try {
-      const tree = new FunctionsTree(loadApp().dir);
+      const tree = new FunctionsTree(loadApp().runtimeDir);
       if (ctx.length === 1) {
         // 补 tag
         const groups = tree.listGroups().map((g) => g.name);
@@ -66,7 +91,8 @@ function candidatesFor(contextRaw: string[]): string[] {
     if (ctx.length === 1) return ["tables", "select", "insert", "update", "delete", "rpc"];
     if (ctx.length === 2) {
       try {
-        const spec = readCachedSpec(loadApp().id);
+        const app = loadApp();
+        const spec = readCachedSpec(app.scopeId);
         if (!spec) return [];
         if (ctx[1] === "rpc") return listRpcs(spec);
         if (["select", "insert", "update", "delete"].includes(ctx[1])) return listTables(spec);
@@ -82,6 +108,7 @@ function candidatesFor(contextRaw: string[]): string[] {
 /** `superun __complete <已完成的上下文词...>`:输出候选,一行一个。 */
 export function runComplete(context: string[]): void {
   try {
+    applyGlobalOverrides(context);
     for (const c of candidatesFor(context)) console.log(c);
   } catch {
     /* 补全永不报错 */
