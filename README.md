@@ -19,6 +19,7 @@ English · [简体中文](README.zh-CN.md)
 - **Multi-project** — Manage and switch between any number of projects; each keeps an isolated configuration, session, and function cache.
 - **Production/debug targets** — A project can also configure a separate debug Supabase URL and anon key. Once configured, debug is the default; production remains available per command. Sessions and runtime caches are isolated between targets.
 - **Browser login** — Sign in through your project's built-in Supabase OAuth 2.1 authorization server (Authorization Code + PKCE, with Dynamic Client Registration).
+- **Local MCP for WorkBuddy** — Configure one stdio command, then inspect and operate the selected project through conversation while reusing the CLI's login, RLS, discovery, and validation.
 - **Shell completion** — Bash, Zsh, and Fish; completes commands, function tags, function names, and project aliases from the local cache, with no network calls.
 
 ## Installation
@@ -98,6 +99,34 @@ superun fn <tag>                          List functions within a group
 superun fn <tag> <name> --data '<json>'   Invoke (add --help for the input/output contract)
 ```
 
+### MCP for WorkBuddy
+
+MCP is a one-time WorkBuddy configuration, not a command to paste into every chat. After `init` and `login`, add a local **stdio** MCP server in WorkBuddy. If the host accepts JSON configuration, the entry is:
+
+```json
+{
+  "mcpServers": {
+    "superun-shop": {
+      "type": "stdio",
+      "command": "superun",
+      "args": ["--app", "shop", "--env", "production", "mcp"]
+    }
+  }
+}
+```
+
+`--app` accepts either the alias passed to `init --name` (such as `shop`) or the generated project id. Keep `--env production` to pin WorkBuddy to production, or change it to `--env debug` for the project's separately configured debug target. If WorkBuddy cannot find globally installed commands, use the absolute path returned by `which superun` (macOS/Linux) or `where superun` (Windows). Restart or reconnect the MCP server, then ask WorkBuddy questions such as “list the tables in shop” or “describe the order functions.”
+
+The server exposes exactly seven tools: `project_status`, `list_tables`, `query_rows`, `list_function_groups`, `list_functions`, `describe_function`, and `call_function`. Database access is intentionally read-only (`GET` only, maximum 200 rows) with no raw insert/update/delete/RPC tool. Every result is capped at 1 MiB; narrow `columns` or `limit` if the server asks. `call_function` validates the published input schema and requires `userConfirmed: true`; an MCP host may set it only after the user explicitly approves that exact function and exact input in the current conversation.
+
+The equivalent server command is:
+
+```bash
+superun --app shop --env production mcp
+```
+
+Its stdout is reserved for the MCP protocol; diagnostics go to stderr.
+
 ## Authentication & Identity
 
 The "current user" is the JWT held in the local session. PostgREST RLS and `verifyJwt: true` functions both validate it against the backend's `jwtSecret`, so the token must be issued by that instance — by GoTrue, or signed with the same secret. Tokens from a foreign auth system are rejected at runtime (`401`); only `verifyJwt: false` functions remain callable.
@@ -134,6 +163,7 @@ superun fn <tag> <name>
 
 - Standard **OpenAPI 3.1** in, no custom DSL — inputs and outputs are JSON Schema 2020-12.
 - **Grouping** follows OpenAPI `tags`; without tags, the first path segment is used (`/api/runtime-tick` → group `api`, command `runtime-tick`).
+- Function paths keep their original case and may use ordinary dots, but they must remain portable relative paths. Traversal, URL-reserved path characters, Windows-invalid or reserved names, the top-level `index` name, and case-insensitive cache collisions are rejected before cache generation.
 - `verifyJwt` is derived from a non-empty OpenAPI `security` block at compile time.
 - The OpenAPI parser runs only during `app refresh`; the `fn` hot path just reads cached JSON.
 
@@ -177,6 +207,7 @@ pnpm dev init --url https://x.supabase.co --anon-key <key> --name demo
 pnpm dev app refresh --manifest fixtures/manifest.openapi.json   # sample backend OpenAPI
 pnpm dev fn
 pnpm build                                                       # emits dist/cli.js (bin: superun)
+pnpm test                                                        # protocol and stdio MCP tests
 ```
 
 `fixtures/manifest.openapi.json` is a sample backend document (single file, multiple functions with tags). `app refresh --manifest` accepts a URL, a function name, or a local file, which is convenient for offline testing.
@@ -188,6 +219,7 @@ pnpm build                                                       # emits dist/cl
 - [x] Shell completion (Bash / Zsh / Fish)
 - [x] `login --token / --password / --browser` (OAuth 2.1 + PKCE, DCR or pre-registered client), `whoami`, full `db` CRUD/RPC under RLS
 - [x] Automatic session refresh
+- [x] Local stdio MCP server for WorkBuddy and other MCP hosts (guarded read tools + validated business functions)
 - [ ] `login` strategies `otp` (email code) and `custom` (app-specific endpoint)
 - [ ] Reference backend manifest endpoint (`_cli-manifest`) for end-to-end `fn`
 

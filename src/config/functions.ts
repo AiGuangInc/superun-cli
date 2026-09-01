@@ -33,6 +33,46 @@ interface CompiledIndex {
   functions: FnSummary[];
 }
 
+const WINDOWS_INVALID_SEGMENT_CHARACTER = /[<>:"|*]/;
+const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
+const URL_UNSAFE_CHARACTER = /[%?#]/;
+
+/**
+ * Function names become relative cache paths on every supported platform.
+ * Preserve the route's spelling while rejecting path traversal, URL
+ * reinterpretation, and names that cannot be represented by the cache on all
+ * supported filesystems.
+ */
+export function assertSafeFunctionName(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new Error(`Unsafe function name ${JSON.stringify(value)}: expected a string`);
+  }
+  const name = value;
+  const segments = name.split("/");
+  const invalid =
+    !name ||
+    name.includes("\\") ||
+    CONTROL_CHARACTER.test(name) ||
+    URL_UNSAFE_CHARACTER.test(name) ||
+    (segments.length === 1 && /^index$/i.test(segments[0])) ||
+    segments.some(
+      segment =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        WINDOWS_INVALID_SEGMENT_CHARACTER.test(segment) ||
+        /[. ]$/.test(segment) ||
+        WINDOWS_RESERVED_SEGMENT.test(segment),
+    );
+  if (invalid) {
+    throw new Error(
+      `Unsafe function name ${JSON.stringify(name)}: expected a portable relative function path without traversal or reserved path characters`,
+    );
+  }
+  return name;
+}
+
 /**
  * 运行时 edge function 读取器:**只读本地缓存**(`functions/index.json` + `functions/<name>.json`)。
  * 不解析 OpenAPI、不引 parser —— 编译只在 `superun app refresh` 时一次性做完。
@@ -45,8 +85,8 @@ export class FunctionsTree {
   private readonly indexPath: string;
   private index?: CompiledIndex;
 
-  constructor(appDir: string) {
-    this.dir = join(appDir, "functions");
+  constructor(runtimeDir: string) {
+    this.dir = join(runtimeDir, "functions");
     this.indexPath = join(this.dir, "index.json");
   }
 
@@ -73,11 +113,19 @@ export class FunctionsTree {
     // 按索引解析:接受规范函数名,或 `group/name` 形式。
     const fns = this.loadIndex().functions ?? [];
     const hit = fns.find((f) => f.name === ref) ?? fns.find((f) => `${f.group}/${f.name}` === ref);
-    const name = hit ? hit.name : ref;
+    if (!hit) {
+      throw new Error(`Unknown function "${ref}". Run \`superun fn\` or \`superun fn <tag>\` to list available functions`);
+    }
+    const name = assertSafeFunctionName(hit.name);
     const f = join(this.dir, `${name}.json`);
     if (!existsSync(f)) {
       throw new Error(`Unknown function "${ref}". Run \`superun fn\` or \`superun fn <tag>\` to list available functions`);
     }
-    return JSON.parse(readFileSync(f, "utf8")) as CompiledFn;
+    const compiled = JSON.parse(readFileSync(f, "utf8")) as CompiledFn;
+    const cachedName = assertSafeFunctionName(compiled.name);
+    if (cachedName !== name) {
+      throw new Error(`Invalid function cache for "${ref}": leaf name does not match the manifest index`);
+    }
+    return compiled;
   }
 }
