@@ -1,5 +1,5 @@
 import { dereferenceDoc, pickOperation, validateDoc } from "./openapi.js";
-import type { CompiledFn, FnSummary, GroupInfo } from "./config/functions.js";
+import { assertSafeFunctionName, type CompiledFn, type FnSummary, type GroupInfo } from "./config/functions.js";
 
 export interface CompiledManifest {
   index: { schemaVersion: number; groups: GroupInfo[]; functions: FnSummary[] };
@@ -15,13 +15,32 @@ export async function compileFromDoc(doc: unknown): Promise<CompiledManifest> {
   if (verr) throw new Error(`Manifest failed OpenAPI 3.1 validation:\n${verr}`);
   const dereffed = await dereferenceDoc(doc);
 
-  const functions: Record<string, CompiledFn> = {};
+  // Function names come from an external document. A null-prototype object keeps
+  // names such as "__proto__" as ordinary own properties rather than setters.
+  const functions = Object.create(null) as Record<string, CompiledFn>;
   const fnIndex: FnSummary[] = [];
+  const cacheFiles = new Map<string, string>([["index.json", "the reserved manifest index"]]);
 
   for (const [p, item] of Object.entries(dereffed.paths ?? {}) as [string, any][]) {
-    const name = p.replace(/^\//, "");
     const picked = pickOperation(item);
     if (!picked) continue;
+    const name = assertSafeFunctionName(p.replace(/^\//, ""));
+    const cacheFile = `${name}.json`
+      .split("/")
+      .map(segment => segment.normalize("NFC").toLowerCase())
+      .join("/");
+    for (const [existingFile, existingName] of cacheFiles) {
+      if (
+        cacheFile === existingFile ||
+        cacheFile.startsWith(`${existingFile}/`) ||
+        existingFile.startsWith(`${cacheFile}/`)
+      ) {
+        throw new Error(
+          `Function path ${JSON.stringify(name)} has a cache path collision with ${existingName} on a case-insensitive filesystem`,
+        );
+      }
+    }
+    cacheFiles.set(cacheFile, `function path ${JSON.stringify(name)}`);
     const op = picked.operation;
     const verifyJwt = Array.isArray(op.security) && op.security.length > 0;
     // 分组优先用 OpenAPI tag;没有则按路径首段(/api/runtime-tick → api),再没有则 default

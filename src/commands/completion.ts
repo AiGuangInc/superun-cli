@@ -3,7 +3,7 @@ import { FunctionsTree } from "../config/functions.js";
 import { listAppMetas, loadApp, resolveRef, setActiveOverride, setEnvironmentOverride } from "../config/app.js";
 import { listRpcs, listTables, readCachedSpec } from "../discovery/pgrest.js";
 
-const TOP = ["init", "login", "logout", "whoami", "db", "fn", "app"];
+const TOP = ["init", "login", "logout", "whoami", "db", "fn", "mcp", "app"];
 const APP_SUB = ["list", "use", "remove", "show", "set", "where", "refresh"];
 
 /** 补全后端收到的是上下文词，先应用其中的全局目标覆盖。 */

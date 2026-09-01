@@ -6,6 +6,7 @@ import { registerCompletion } from "./commands/completion.js";
 import { registerDb } from "./commands/db.js";
 import { buildFnCommands } from "./commands/fn.js";
 import { registerLogin } from "./commands/login.js";
+import { registerMcp } from "./commands/mcp.js";
 import { registerWhoami } from "./commands/whoami.js";
 import { ensureManifest } from "./discovery/functions-manifest.js";
 
@@ -66,6 +67,7 @@ export async function createProgram(): Promise<Command> {
   registerLogin(program);
   registerWhoami(program);
   registerDb(program);
+  registerMcp(program);
   registerCompletion(program); // 隐藏:completion / __complete
 
   // fn 命令树按缓存的 manifest 动态生成(tag → 函数 → 调用)

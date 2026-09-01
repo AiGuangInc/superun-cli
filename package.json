@@ -1,6 +1,7 @@
 {
   "name": "superun-cli",
-  "version": "0.0.2",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.34.5",
   "description": "A universal, configuration-driven CLI for calling Supabase-compatible PostgREST and Edge Functions across isolated production and debug targets.",
   "type": "module",
   "bin": {
@@ -19,15 +20,19 @@
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
     "prepare": "npm run clean && tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
     "@readme/openapi-parser": "^6.1.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"

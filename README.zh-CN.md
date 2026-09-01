@@ -19,6 +19,7 @@
 - **多项目** —— 管理并切换任意多个项目,各自的配置、会话与函数缓存相互隔离。
 - **生产/debug 双环境** —— 同一项目可额外配置 debug Supabase URL 与 anon key；配置完整后默认走 debug，也可按命令临时切回 production。两套会话与运行时缓存完全隔离。
 - **浏览器登录** —— 通过项目内置的 Supabase OAuth 2.1 授权服务器登录(授权码 + PKCE,支持动态客户端注册)。
+- **WorkBuddy 本地 MCP** —— 一次配置 stdio 命令,之后即可通过对话查询和操作指定项目,并复用 CLI 已有的登录、RLS、能力发现与参数校验。
 - **Shell 补全** —— 支持 Bash / Zsh / Fish,从本地缓存补全命令、函数标签、函数名与项目别名,全程不触网。
 
 ## 安装
@@ -98,6 +99,34 @@ superun fn <tag>                          列出分组内的函数
 superun fn <tag> <name> --data '<json>'   调用(--help 查看输入/输出契约)
 ```
 
+### 在 WorkBuddy 中使用 MCP
+
+MCP 只需在 WorkBuddy 中配置一次,不是每次对话都粘贴一段指令。完成 `init` 和 `login` 后,在 WorkBuddy 的 MCP 设置中新增一个本地 **stdio** 服务。如果宿主支持 JSON 配置,可填写:
+
+```json
+{
+  "mcpServers": {
+    "superun-shop": {
+      "type": "stdio",
+      "command": "superun",
+      "args": ["--app", "shop", "--env", "production", "mcp"]
+    }
+  }
+}
+```
+
+`--app` 既可以直接使用 `init --name` 时填写的别名(如 `shop`),也可以使用生成的项目 id。保留 `--env production` 可将 WorkBuddy 固定连到生产环境;若要使用项目单独配置的 debug 环境,则改为 `--env debug`。如果 WorkBuddy 找不到全局安装的命令,请把 `command` 换成 `which superun`(macOS/Linux)或 `where superun`(Windows)返回的绝对路径。重启或重新连接 MCP 服务后,就可以在对话里说“列出 shop 项目的表”或“介绍一下订单相关函数”。
+
+服务固定暴露 7 个工具:`project_status`、`list_tables`、`query_rows`、`list_function_groups`、`list_functions`、`describe_function`、`call_function`。数据库能力刻意限制为只读(`GET`、单次最多 200 行),不提供原始增删改或 RPC 工具。每个结果最多 1 MiB,超限时需缩小 `columns` 或 `limit`。`call_function` 会按发布的输入 schema 校验,并强制要求 `userConfirmed: true`;MCP 宿主只有在用户已于当前对话明确确认“这个具体函数 + 这份具体 input”后才可以设置该字段。
+
+对应的服务启动命令是:
+
+```bash
+superun --app shop --env production mcp
+```
+
+该命令的 stdout 只用于 MCP 协议,诊断信息写入 stderr。
+
 ## 认证与身份
 
 “当前用户”即本地会话持有的 JWT。PostgREST 的 RLS 与 `verifyJwt: true` 的函数都使用后端的 `jwtSecret` 验签,因此 token 必须由该实例签发 —— 由 GoTrue 签发,或用相同 secret 签出。来自其他鉴权体系的 token 会在运行时被拒(`401`),此时仅能调用 `verifyJwt: false` 的函数。
@@ -134,6 +163,7 @@ superun fn <tag> <name>
 
 - 输入为标准 **OpenAPI 3.1**,无自造 DSL —— 输入/输出即 JSON Schema 2020-12。
 - **分组**遵循 OpenAPI `tags`;无标签时取路径首段(`/api/runtime-tick` → 分组 `api`,命令 `runtime-tick`)。
+- 函数路径会保留原始大小写,也可使用普通点号,但必须是可跨平台的安全相对路径;路径穿越、URL 路径保留字符、Windows 非法或保留名称、顶层 `index` 名称及大小写不敏感的缓存冲突会在生成缓存前被拒绝。
 - `verifyJwt` 在编译期由非空的 OpenAPI `security` 块推导得出。
 - OpenAPI 解析器仅在 `app refresh` 时运行;`fn` 热路径只读取缓存 JSON。
 
@@ -177,6 +207,7 @@ pnpm dev init --url https://x.supabase.co --anon-key <key> --name demo
 pnpm dev app refresh --manifest fixtures/manifest.openapi.json   # 样例后端 OpenAPI
 pnpm dev fn
 pnpm build                                                       # 产出 dist/cli.js(bin: superun)
+pnpm test                                                        # 协议与 stdio MCP 测试
 ```
 
 `fixtures/manifest.openapi.json` 是一份样例后端文档(单文件、多函数 + 标签)。`app refresh --manifest` 接受 URL、函数名或本地文件,便于离线自测。
@@ -188,6 +219,7 @@ pnpm build                                                       # 产出 dist/c
 - [x] Shell 补全(Bash / Zsh / Fish)
 - [x] `login --token / --password / --browser`(OAuth 2.1 + PKCE,DCR 或预注册客户端)、`whoami`、完整 `db` 增删改查/RPC(RLS 生效)
 - [x] 会话自动续期
+- [x] 面向 WorkBuddy 等 MCP 宿主的本地 stdio 服务(受限只读工具 + 参数校验后的业务函数)
 - [ ] `login` 策略 `otp`(邮箱验证码)与 `custom`(应用自有端点)
 - [ ] 参考后端 manifest 端点(`_cli-manifest`)以打通端到端 `fn`
 
