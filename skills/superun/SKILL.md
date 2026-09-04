@@ -18,7 +18,12 @@ superun --version          # confirm it's installed
 superun app list           # which projects are registered (* = active)
 superun app show           # confirm the selected production/debug target and URL
 superun whoami --json       # current identity, or "Not logged in"
+superun upgrade            # upgrade the CLI from npm when the user requests it
 ```
+
+On the first operational command each day, the CLI checks npm dist-tags. If its version is below the
+maintainer's `required` tag, it upgrades itself and then re-runs the original command automatically.
+Help, version, completion, and explicit `superun upgrade` entry points remain directly available.
 
 - No active project? Register one with `superun init --url <url> --anon-key <key> [--debug-url <url> --debug-anon-key <key>] [--name <alias>]`.
 - To add debug to an existing project, use `superun app set --debug-url <url> --debug-anon-key <key>`. Supplying the complete pair makes debug the project default.

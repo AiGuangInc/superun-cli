@@ -80,6 +80,26 @@ superun whoami                                    解码当前会话的 JWT clai
 superun logout                                    清除本地会话
 ```
 
+### 维护
+
+```
+superun upgrade                                   从 npm 升级 CLI，并输出最新版 skill 地址
+```
+
+CLI 每天第一次执行业务命令时读取 npm dist-tags，当天后续命令只使用本地缓存。`latest`
+只产生普通升级提示；维护者设置的 `required` 代表最低可用版本。当前版本低于 `required`
+时，CLI 会先通过 npm 自动升级到最新版，再用升级后的 CLI 重新执行用户原命令。
+`upgrade`、帮助、版本和 shell 补全入口不会触发自动检查。
+
+维护者只能在目标版本发布并验证后启用或提高强更下限：
+
+```bash
+npm dist-tag add superun-cli@<最低可用版本> required
+npm dist-tag rm superun-cli required  # 取消强更
+```
+
+强更只对已经包含该门禁的 CLI 版本生效；首个支持版本必须先作为普通更新推广。
+
 ### 数据库(PostgREST)
 
 ```

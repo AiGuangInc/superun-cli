@@ -80,6 +80,28 @@ superun whoami                                    Decode the current session's J
 superun logout                                    Clear the local session
 ```
 
+### Maintenance
+
+```
+superun upgrade                                   Upgrade the CLI from npm and print the latest skill URL
+```
+
+The CLI reads npm dist-tags on the first operational command each day and uses its local cache for
+the rest of that day. `latest` only produces a normal update notice; the maintainer-controlled
+`required` tag is the minimum allowed version. Below that minimum, the CLI upgrades itself through
+npm and then re-runs the original command with the new CLI. Upgrade, help, version, and shell
+completion entry points skip the automatic check.
+
+Only enable or raise the minimum after publishing and verifying the target version:
+
+```bash
+npm dist-tag add superun-cli@<minimum-version> required
+npm dist-tag rm superun-cli required  # disable mandatory upgrades
+```
+
+The gate only applies to versions that already contain it; the first capable release must be rolled
+out as a normal update.
+
 ### Database (PostgREST)
 
 ```
