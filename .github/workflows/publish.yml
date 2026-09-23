@@ -1,0 +1,138 @@
+name: Publish superun-cli
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full commit SHA on main to publish
+        required: true
+        type: string
+      version:
+        description: Stable npm version in that commit (for example, 0.1.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-superun-cli
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      digest: ${{ steps.pack.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate the requested source and version
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Run this workflow from main'; exit 1; }
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo 'A full commit SHA is required'; exit 1; }
+          [[ "$RELEASE_COMMIT" == "$GITHUB_SHA" ]] || { echo 'Commit must match main at workflow dispatch'; exit 1; }
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'A stable version is required'; exit 1; }
+          git fetch origin main
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main || { echo 'Commit is not on main'; exit 1; }
+          git checkout --detach "$RELEASE_COMMIT"
+          node -e 'const p=require("./package.json"); if (p.name !== "superun-cli" || p.version !== process.env.RELEASE_VERSION) process.exit(1)'
+          npm view superun-cli versions --json | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const versions=JSON.parse(s);if([].concat(versions).includes(process.env.RELEASE_VERSION)){console.error("Version already published");process.exit(1)}})'
+          npm view superun-cli dist-tags.latest --json | node -e '
+            let text = "";
+            process.stdin.on("data", chunk => text += chunk);
+            process.stdin.on("end", () => {
+              const current = JSON.parse(text).split(".").map(Number);
+              const next = process.env.RELEASE_VERSION.split(".").map(Number);
+              const differing = next.findIndex((part, index) => part !== current[index]);
+              if (current.some(Number.isNaN) || differing < 0 || next[differing] < current[differing]) {
+                console.error("Version must be newer than latest");
+                process.exitCode = 1;
+              }
+            });
+          '
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+      - name: Pack the release artifact
+        id: pack
+        env:
+          RELEASE_COMMIT: ${{ inputs.commit }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          tarball="$(npm pack --pack-destination "$RUNNER_TEMP" --silent)"
+          test -f "$RUNNER_TEMP/$tarball"
+          digest="$(sha256sum "$RUNNER_TEMP/$tarball" | cut -d ' ' -f 1)"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Release awaiting approval"
+            echo "- Package: superun-cli@$RELEASE_VERSION"
+            echo "- Commit: $RELEASE_COMMIT"
+            echo "- Tarball SHA-256: $digest"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/release
+      - name: Verify the approved artifact
+        env:
+          TARBALL: ${{ needs.prepare.outputs.tarball }}
+          DIGEST: ${{ needs.prepare.outputs.digest }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          echo "$DIGEST  $TARBALL" | sha256sum --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Publish to npm
+        env:
+          TARBALL: ${{ needs.prepare.outputs.tarball }}
+        run: |
+          npm --version
+          node -e 'const [major,minor,patch]=process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) { console.error("npm 11.5.1 or newer is required for trusted publishing"); process.exit(1) }' "$(npm --version)"
+          npm publish "$RUNNER_TEMP/release/$TARBALL" --access public --tag latest
+      - name: Verify the public installation
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npm install --prefix "$RUNNER_TEMP/verify" "superun-cli@$RELEASE_VERSION" --ignore-scripts --registry=https://registry.npmjs.org; then
+              installed_version="$("$RUNNER_TEMP/verify/node_modules/.bin/superun" --version)"
+              [[ "$installed_version" == "$RELEASE_VERSION" ]] || { echo "Installed version: $installed_version"; exit 1; }
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'Published package could not be installed from npm'
+          exit 1
