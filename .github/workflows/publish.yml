@@ -1,7 +1,7 @@
 name: Publish superun-cli
 
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     branches: [main]
     paths:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   prepare:
-    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository && github.actor == 'h2562961224' && github.event.pull_request.merge_commit_sha == github.sha
     runs-on: ubuntu-latest
     outputs:
       tarball: ${{ steps.pack.outputs.tarball }}
@@ -25,12 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Validate the release request
         id: release
         env:
-          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Run this workflow from main'; exit 1; }
           git fetch origin main
@@ -50,7 +51,7 @@ jobs:
       - name: Pack the release artifact
         id: pack
         env:
-          RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           tarball="$(npm pack --pack-destination "$RUNNER_TEMP" --silent)"
