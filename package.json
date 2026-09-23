@@ -1,6 +1,6 @@
 {
   "name": "superun-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "packageManager": "pnpm@10.34.5",
   "description": "A universal, configuration-driven CLI for calling Supabase-compatible PostgREST and Edge Functions across isolated production and debug targets.",
   "type": "module",
