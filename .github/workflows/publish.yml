@@ -35,36 +35,7 @@ jobs:
           [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Run this workflow from main'; exit 1; }
           git fetch origin main
           git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main || { echo 'Commit is not on main'; exit 1; }
-          node <<'NODE'
-          const fs = require('node:fs');
-          const request = JSON.parse(fs.readFileSync('.github/release-request.json', 'utf8'));
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const allowed = new Set(['version', 'notes']);
-          if (Object.keys(request).some(key => !allowed.has(key))) throw new Error('Unknown release request field');
-          if (!/^\d+\.\d+\.\d+$/.test(request.version) || pkg.name !== 'superun-cli' || pkg.version !== request.version) {
-            throw new Error('Release version must match package.json and be a stable version');
-          }
-          if (!Array.isArray(request.notes) || request.notes.length === 0 || request.notes.some(note => typeof note !== 'string' || !note.trim())) {
-            throw new Error('Release notes must contain at least one nonempty item');
-          }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${request.version}\n`);
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Release request: superun-cli@${request.version}\n\n${request.notes.map(note => `- ${note.trim()}`).join('\n')}\n`);
-          NODE
-          export RELEASE_VERSION="$(node -p 'require("./.github/release-request.json").version')"
-          npm view superun-cli versions --json | node -e 'let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{const versions=JSON.parse(s);if([].concat(versions).includes(process.env.RELEASE_VERSION)){console.error("Version already published");process.exit(1)}})'
-          npm view superun-cli dist-tags.latest --json | node -e '
-            let text = "";
-            process.stdin.on("data", chunk => text += chunk);
-            process.stdin.on("end", () => {
-              const current = JSON.parse(text).split(".").map(Number);
-              const next = process.env.RELEASE_VERSION.split(".").map(Number);
-              const differing = next.findIndex((part, index) => part !== current[index]);
-              if (current.some(Number.isNaN) || differing < 0 || next[differing] < current[differing]) {
-                console.error("Version must be newer than latest");
-                process.exitCode = 1;
-              }
-            });
-          '
+          node scripts/validate-release-request.mjs
       - uses: pnpm/action-setup@v4
         with:
           version: 10.34.5
