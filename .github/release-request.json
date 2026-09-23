@@ -1,7 +1,7 @@
 {
   "version": "0.1.1",
   "notes": [
-    "新增 superun upgrade 命令，用于从 npm 更新 CLI。",
+    "新增 superun upgrade 命令，从 npm 更新 CLI 并输出最新版 skill 地址。",
     "新增基于 npm required 标签的最低版本门禁：低于门槛时自动升级并重新执行原命令；latest 仅提示更新。",
     "每日缓存更新策略；npm 不可用时沿用已知的强更下限。"
   ]
