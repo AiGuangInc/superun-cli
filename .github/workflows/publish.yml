@@ -102,11 +102,15 @@ jobs:
           [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] || { echo 'GitHub OIDC token request is unavailable'; exit 1; }
           [[ -z "${NODE_AUTH_TOKEN:-}" ]] || { echo 'Unexpected npm token would bypass OIDC'; exit 1; }
           npm publish "$RUNNER_TEMP/release/$TARBALL" --access public --tag latest
+          echo "PUBLISHED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - name: Verify the public installation
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 8); do
+            check_at=$((PUBLISHED_AT + (attempt + 2) * 60))
+            wait_seconds=$((check_at - $(date +%s)))
+            if (( wait_seconds > 0 )); then sleep "$wait_seconds"; fi
             if npm install --prefix "$RUNNER_TEMP/verify" "superun-cli@$RELEASE_VERSION" \
               --ignore-scripts --registry=https://registry.npmjs.org \
               --prefer-online --cache "$RUNNER_TEMP/verify-cache-$attempt" \
@@ -116,12 +120,11 @@ jobs:
               [[ "$installed_version" == "$RELEASE_VERSION" ]] || { echo "Installed version: $installed_version"; exit 1; }
               exit 0
             fi
-            if (( attempt == 40 )); then
+            if (( attempt == 8 )); then
               cat "$RUNNER_TEMP/verify-install.log"
               break
             fi
-            echo "superun-cli@$RELEASE_VERSION is not publicly installable yet (attempt $attempt/40)"
-            sleep 15
+            echo "superun-cli@$RELEASE_VERSION is not publicly installable yet (attempt $attempt/8)"
           done
           echo 'Published package could not be installed from npm'
           exit 1
