@@ -1,8 +1,7 @@
 name: Publish superun-cli
 
 on:
-  pull_request_target:
-    types: [closed]
+  push:
     branches: [main]
     paths:
       - .github/release-request.json
@@ -16,7 +15,6 @@ concurrency:
 
 jobs:
   prepare:
-    if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     outputs:
       tarball: ${{ steps.pack.outputs.tarball }}
@@ -25,13 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Validate the release request
         id: release
         env:
-          RELEASE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_COMMIT: ${{ github.sha }}
         run: |
           [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'Run this workflow from main'; exit 1; }
           git fetch origin main
@@ -51,7 +48,7 @@ jobs:
       - name: Pack the release artifact
         id: pack
         env:
-          RELEASE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}
+          RELEASE_COMMIT: ${{ github.sha }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
           tarball="$(npm pack --pack-destination "$RUNNER_TEMP" --silent)"
@@ -60,7 +57,7 @@ jobs:
           echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           {
-            echo "### Release awaiting approval"
+            echo "### Release artifact"
             echo "- Package: superun-cli@$RELEASE_VERSION"
             echo "- Commit: $RELEASE_COMMIT"
             echo "- Tarball SHA-256: $digest"
@@ -84,23 +81,26 @@ jobs:
         with:
           name: npm-package
           path: ${{ runner.temp }}/release
-      - name: Verify the approved artifact
+      - name: Verify the release artifact
         env:
           TARBALL: ${{ needs.prepare.outputs.tarball }}
           DIGEST: ${{ needs.prepare.outputs.digest }}
         run: |
           cd "$RUNNER_TEMP/release"
           echo "$DIGEST  $TARBALL" | sha256sum --check
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - name: Publish to npm
         env:
           TARBALL: ${{ needs.prepare.outputs.tarball }}
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
         run: |
           npm --version
           node -e 'const [major,minor,patch]=process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) { console.error("npm 11.5.1 or newer is required for trusted publishing"); process.exit(1) }' "$(npm --version)"
+          [[ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" && -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]] || { echo 'GitHub OIDC token request is unavailable'; exit 1; }
+          [[ -z "${NODE_AUTH_TOKEN:-}" ]] || { echo 'Unexpected npm token would bypass OIDC'; exit 1; }
           npm publish "$RUNNER_TEMP/release/$TARBALL" --access public --tag latest
       - name: Verify the public installation
         env:
