@@ -106,13 +106,22 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          for attempt in 1 2 3 4 5; do
-            if npm install --prefix "$RUNNER_TEMP/verify" "superun-cli@$RELEASE_VERSION" --ignore-scripts --registry=https://registry.npmjs.org; then
+          for attempt in $(seq 1 40); do
+            if npm install --prefix "$RUNNER_TEMP/verify" "superun-cli@$RELEASE_VERSION" \
+              --ignore-scripts --registry=https://registry.npmjs.org \
+              --prefer-online --cache "$RUNNER_TEMP/verify-cache-$attempt" \
+              > "$RUNNER_TEMP/verify-install.log" 2>&1; then
+              cat "$RUNNER_TEMP/verify-install.log"
               installed_version="$("$RUNNER_TEMP/verify/node_modules/.bin/superun" --version)"
               [[ "$installed_version" == "$RELEASE_VERSION" ]] || { echo "Installed version: $installed_version"; exit 1; }
               exit 0
             fi
-            sleep 10
+            if (( attempt == 40 )); then
+              cat "$RUNNER_TEMP/verify-install.log"
+              break
+            fi
+            echo "superun-cli@$RELEASE_VERSION is not publicly installable yet (attempt $attempt/40)"
+            sleep 15
           done
           echo 'Published package could not be installed from npm'
           exit 1
