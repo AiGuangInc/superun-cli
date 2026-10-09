@@ -66,6 +66,20 @@ validates user input against them.
 
 ---
 
+## 生成项目业务 Skill
+
+由执行本次接入任务的项目 Agent，在业务代码和 OpenAPI 确定后生成 `public/superun/SKILL.md`，并随项目部署。首次创建；每次更新接入能力都依据当前完整实现重新生成并覆盖同一路径，不因文件存在而跳过，不追加第二份文档。
+
+阅读项目需求、页面调用、service、Edge Functions、RPC 和数据模型，先识别业务目标，再核对数据来源与实际状态流转，最后与开放接口对齐。不能只将接口列表转成 Markdown。
+
+单份文档包含 name/description frontmatter，以及项目业务范围、数据含义和按用户目标组织的流程。每个流程写清前置条件、查询入口、对象 ID、方法与路径、返回字段到下一步参数的映射、状态限制、写入确认、完成判据与失败处理。可选参数的省略/null 语义和统计时间范围必须准确。没有开放接口的步骤明确不支持，不用直接改表替代。
+
+正文只含外部操作所需业务知识，不包含源码路径、真实业务记录、凭据、调试备注或开发待办。旧正文仅作参考，已经失效的流程须移除。先生成校验完整新内容，再覆盖；失败保留旧文件并报告本次失败。
+
+部署后读取 `/superun/SKILL.md` 并核对正文；写入源码但部署失败不能报告更新成功。`superun fn` 和 MCP `list_function_groups` 会实时返回这份正文，每次业务任务先读总览。不要新增文档索引、接口扩展或手动刷新步骤。
+
+---
+
 ## Step 2 — Implement the consent page
 
 `superun login --browser` drives the project's OAuth 2.1 server, which handles the
