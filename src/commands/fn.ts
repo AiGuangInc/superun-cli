@@ -34,6 +34,13 @@ async function callFunction(app: AppConfig, tree: FunctionsTree, name: string, o
   if (opts.file) body = JSON.parse(readFileSync(opts.file, "utf8"));
   else if (opts.data) body = JSON.parse(opts.data);
 
+  const method = (fnDef.method ?? "post").toUpperCase();
+  const bodyless = method === "GET" || method === "HEAD";
+  // 与 MCP 一致：不发送 GET/HEAD 请求体，也不把显式输入静默丢弃或猜成查询参数。
+  if (bodyless && body != null && (typeof body !== "object" || Array.isArray(body) || Object.keys(body).length > 0)) {
+    throw new Error(`Function "${fnDef.name}" uses ${method}; request bodies from --data/--file are not supported. Call it without input.`);
+  }
+
   if (opts.validate && fnDef.input) {
     const chk = validateInput(fnDef.input, body ?? {});
     if (!chk.ok) {
@@ -45,9 +52,9 @@ async function callFunction(app: AppConfig, tree: FunctionsTree, name: string, o
   }
 
   const { status, body: resBody } = await request(app, session, {
-    method: (fnDef.method ?? "post").toUpperCase(),
+    method,
     path: `/functions/v1/${fnDef.name}`,
-    body: body ?? {},
+    ...(bodyless ? {} : { body: body ?? {} }),
     auth: fnDef.verifyJwt,
   });
   console.log(`HTTP ${status}`);
