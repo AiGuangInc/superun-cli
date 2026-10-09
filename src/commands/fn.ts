@@ -5,6 +5,7 @@ import { FunctionsTree } from "../config/functions.js";
 import { loadSession } from "../auth/session.js";
 import { request } from "../transport/client.js";
 import { validateInput } from "../validate.js";
+import { readProjectSkill } from "../discovery/functions-manifest.js";
 
 /** 叶命令名 = 去掉分组前缀后的函数名(api/runtime-tick 在组 api 下 → runtime-tick)。 */
 function leafName(name: string, group: string): string {
@@ -88,5 +89,9 @@ export function buildFnCommands(fnCmd: Command, app: AppConfig): void {
     }
   }
 
-  fnCmd.action(() => fnCmd.help()); // `superun fn` 无 tag → 列出所有 tag 组
+  fnCmd.action(async () => {
+    const skill = await readProjectSkill(app);
+    console.log(`项目业务说明：${skill.source ?? "未提供"}\n${skill.content ?? skill.error}\n`);
+    fnCmd.outputHelp();
+  });
 }

@@ -257,3 +257,8 @@ names, marks, or the author's reputation to endorse or promote your own product
 (see Section 6 of the license). The software is provided "as is", without
 warranty of any kind, and the author is not liable for any damages arising from
 its use.
+
+
+## Project business guide
+
+Projects can publish a business guide at `public/superun/SKILL.md`, next to `openapi.json`. `superun fn` and MCP `list_function_groups` read its latest contents alongside the existing function groups. Read it to understand the project's data, workflows, parameter handoffs, and completion checks. A missing or unreadable guide is reported without blocking existing function discovery. Interface caching and `app refresh` keep their existing behavior; reading an updated guide does not require a refresh.

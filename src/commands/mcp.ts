@@ -7,7 +7,7 @@ import * as z from "zod/v4";
 import { decodeJwt, loadSession, type Session } from "../auth/session.js";
 import { loadApp, type AppConfig } from "../config/app.js";
 import { FunctionsTree, type CompiledFn } from "../config/functions.js";
-import { ensureManifest } from "../discovery/functions-manifest.js";
+import { ensureManifest, readProjectSkill } from "../discovery/functions-manifest.js";
 import { getPgrestSpec, listTables } from "../discovery/pgrest.js";
 import { request } from "../transport/client.js";
 import { validateInput } from "../validate.js";
@@ -184,7 +184,9 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
     { name: `superun-${app.id}`, version: SERVER_VERSION },
     {
       instructions:
-        "Operate only the configured superun project. Discover tables/functions before using them. " +
+        "Operate only the configured superun project. Start each business task with list_function_groups and read its projectSkill " +
+        "for data meanings, workflow steps, parameter handoffs, and completion checks. It retrieves the latest guide each time. " +
+        "If the guide is missing or unreadable, report that limitation; do not invent business rules. Discover tables/functions before using them. " +
         "Database access is read-only and limited. call_function may change business data and requires userConfirmed=true only after " +
         "the user has approved that exact function and exact input in the current conversation.",
     },
@@ -277,13 +279,14 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
     "list_function_groups",
     {
       title: "List function groups",
-      description: "List Edge Function groups discovered from the project's OpenAPI manifest.",
+      description: "Read the latest project business guide and Edge Function groups. Start each business task here before choosing a workflow.",
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async () =>
       runTool(async () => {
         const tree = await functionTree(app);
-        return { groups: tree.listGroups() };
+        const projectSkill = await readProjectSkill(app);
+        return { groups: tree.listGroups(), projectSkill };
       }),
   );
 

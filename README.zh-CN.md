@@ -248,3 +248,8 @@ pnpm test                                                        # 协议与 std
 基于 [Apache License 2.0](LICENSE) 授权 © 2026 uxarts。
 
 你可以自由地使用、修改和分发本项目,**包括用于商业用途**。当你再分发本项目或其衍生作品时,必须保留版权声明以及 [`LICENSE`](LICENSE) / [`NOTICE`](NOTICE) 文件。本授权**不**授予使用 “uxarts” / “superun” 名称、标识,或借作者名声为你自己的产品做背书、打广告的任何权利(详见协议第 6 条)。本软件按“现状”提供,不附带任何担保,作者对使用本软件产生的任何损失不承担责任。
+
+
+## 项目业务说明
+
+项目可在 `public/superun/openapi.json` 同目录提供 `SKILL.md`，说明业务数据、操作流程、参数衔接与结果核验。`superun fn` 和 MCP `list_function_groups` 会在原有接口分组之外读取最新业务正文；文档缺失或读取失败时明确提示，不阻断原有接口发现。接口缓存和 `app refresh` 行为保持不变，读取更新后的业务文档无需刷新。

@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { AppConfig } from "../config/app.js";
 import { loadSession } from "../auth/session.js";
 import { request } from "../transport/client.js";
@@ -40,6 +41,63 @@ async function fetchDoc(app: AppConfig, src: Source): Promise<unknown> {
 export async function ensureManifest(app: AppConfig): Promise<void> {
   if (!existsSync(join(app.runtimeDir, "functions", "index.json"))) {
     await refreshFunctions(app);
+  }
+}
+
+/** 只读取总览附带的项目业务说明，不改变接口缓存或阻断原有能力。@author xiuyu.yi */
+export async function readProjectSkill(app: AppConfig): Promise<{ source: string | null; content: string | null; error?: string }> {
+  let source: string | null = null;
+  try {
+    const src = resolveSource(app);
+    const path = src.kind === "url" ? new URL(src.value).pathname : src.value;
+    if (basename(path) !== "openapi.json") {
+      return { source, content: null, error: "当前清单来源没有同目录项目业务说明约定。" };
+    }
+    source = src.kind === "url" ? new URL("./SKILL.md", src.value).href : join(dirname(src.value), "SKILL.md");
+    const missing = { source, content: null, error: "项目尚未提供 SKILL.md。" };
+    const maxBytes = 256 * 1024;
+    let content: string;
+    if (src.kind === "file") {
+      if (!existsSync(source)) return missing;
+      if (statSync(source).size > maxBytes) throw new Error("项目业务说明超过体积限制。");
+      content = readFileSync(source, "utf8");
+    } else {
+      const url = new URL(source);
+      url.searchParams.set("_superun_read", randomUUID());
+      // 公开文档不携带项目 key 或用户凭据；每次总览读取最新正文。
+      const response = await fetch(url, {
+        headers: { "Cache-Control": "no-cache, no-store", Pragma: "no-cache" },
+        cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok || response.headers.get("content-type")?.includes("text/html")) {
+        await response.body?.cancel();
+        if (response.status === 404) return missing;
+        throw new Error(response.ok ? "文档地址返回了 HTML 页面。" : `HTTP ${response.status}`);
+      }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("项目业务说明响应为空。");
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > maxBytes) throw new Error("项目业务说明超过体积限制。");
+          chunks.push(value);
+        }
+      } finally {
+        await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
+      content = Buffer.concat(chunks).toString("utf8");
+    }
+    if (!content.trim() || /<(?:!doctype\s+html|html|head|body)(?:\s|>)/i.test(content)) {
+      throw new Error("项目 SKILL.md 为空或返回了站点页面。");
+    }
+    return { source, content };
+  } catch (error) {
+    return { source, content: null, error: `项目业务说明读取失败：${error instanceof Error ? error.message : String(error)}` };
   }
 }
 

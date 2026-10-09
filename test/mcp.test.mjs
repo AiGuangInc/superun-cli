@@ -46,6 +46,8 @@ let httpServer;
 let mcpServer;
 let client;
 let requests = [];
+let projectGuide = "# 业务说明第一版\n查询客户后，将 customerId 传给下一步。";
+let guideStatus = 200;
 const oldEnv = {
   SUPERUN_HOME: process.env.SUPERUN_HOME,
   XDG_CACHE_HOME: process.env.XDG_CACHE_HOME,
@@ -99,6 +101,12 @@ before(async () => {
       body: rawBody ? JSON.parse(rawBody) : null,
     });
 
+    if (url.pathname === "/superun/SKILL.md") {
+      res.statusCode = guideStatus;
+      res.setHeader("content-type", "text/markdown; charset=utf-8");
+      res.end(guideStatus === 200 ? projectGuide : "unavailable");
+      return;
+    }
     res.setHeader("content-type", "application/json");
     if (url.pathname === "/rest/v1/" || url.pathname === "/debug/rest/v1/") {
       res.end(
@@ -198,6 +206,7 @@ before(async () => {
     scopeId: APP_ID,
     runtimeDir: appDir,
     targets: { production: { baseUrl, anonKey: ANON_KEY } },
+    manifest: `${baseUrl}/superun/openapi.json`,
     dir: appDir,
   };
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -310,11 +319,33 @@ test("discovers and validates business functions before making an authenticated 
     { name: "orders", description: "Order operations" },
     { name: "reports", description: "Read reports" },
   ]);
+  assert.equal(groups.projectSkill.content, projectGuide);
+  const guideRequest = requests.at(-1);
+  assert.equal(guideRequest.path, "/superun/SKILL.md");
+  assert.equal(guideRequest.headers.authorization, undefined);
+  assert.equal(guideRequest.headers.apikey, undefined);
+  projectGuide = "# 新增的业务流程\n使用第二版规则核验完成。";
+  const updated = valueOf(await client.callTool({ name: "list_function_groups", arguments: {} }));
+  assert.equal(updated.projectSkill.content, projectGuide);
+  assert.notEqual(requests.at(-1).query._superun_read, guideRequest.query._superun_read);
+  for (const status of [503, 404]) {
+    guideStatus = status;
+    const response = await client.callTool({ name: "list_function_groups", arguments: {} });
+    assert.notEqual(response.isError, true, "业务文档不可用不能阻断原接口分组");
+    const unavailable = valueOf(response);
+    assert.equal(unavailable.projectSkill.content, null);
+    assert.equal(unavailable.groups.length, 2);
+    assert.ok(unavailable.projectSkill.error);
+    assert.equal(JSON.stringify(unavailable).includes(projectGuide), false);
+  }
+  guideStatus = 200;
+  const beforeFunctions = requests.length;
   const functions = valueOf(await client.callTool({ name: "list_functions", arguments: { group: "orders" } }));
   assert.equal(functions.functions[0].name, "orders/create");
   const described = valueOf(
     await client.callTool({ name: "describe_function", arguments: { name: "orders/create" } }),
   );
+  assert.equal(requests.length, beforeFunctions, "函数发现和契约查询仍使用原有缓存");
   assert.equal(described.function.verifyJwt, true);
   assert.deepEqual(described.function.input.required, ["sku", "qty"]);
 
