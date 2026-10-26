@@ -28,6 +28,7 @@ Help, version, completion, and explicit `superun upgrade` entry points remain di
 - No active project? Register one with `superun init --url <url> --anon-key <key> [--debug-url <url> --debug-anon-key <key>] [--name <alias>]`.
 - To add debug to an existing project, use `superun app set --debug-url <url> --debug-anon-key <key>`. Supplying the complete pair makes debug the project default.
 - Not logged in? Public/anon operations may still work. For user-scoped data or `verifyJwt` functions, authenticate with `superun login --browser` (or `--token <jwt>`). Never fabricate a token.
+- In a remote agent sandbox, use `superun login --managed` instead of `--browser`. This requires the app's hosted `superun-oauth` relay and OAuth consent page. Show the printed authorization URL to the human, preserve the waiting shell, and continue only after login succeeds. It opens no browser and listens on no local port. Do not copy browser access/refresh tokens into the sandbox.
 - Sessions refresh automatically. A `401` means the session is unrecoverable (expired refresh token, or a token from a foreign auth system) — tell the user to `superun login` again.
 - If a project has a complete debug target, superun uses debug by default. Use `-e production` only when the user explicitly wants to inspect or operate production. Each target has its own login session, OAuth client, PostgREST schema cache, and Edge Function cache.
 

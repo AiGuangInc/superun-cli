@@ -27,18 +27,23 @@ function shouldRefresh(s: Session | null): s is Session {
 }
 
 /**
- * 用 refresh_token 换新 session(GoTrue: POST /auth/v1/token?grant_type=refresh_token)。
+ * 用 refresh_token 换新 session(常规 GoTrue 或 managed 会话的 OAuth token 端点)。
  * 成功则回写 session.json 并返回新 session;失败(refresh_token 也过期/被吊销)返回 null,
  * 让调用方按原状继续(通常随后拿到 401,提示重新 login)。
  */
 async function refreshSession(app: AppConfig, s: Session): Promise<Session | null> {
   try {
-    const url = new URL(app.baseUrl + "/auth/v1/token");
-    url.searchParams.set("grant_type", "refresh_token");
+    const url = new URL(s.oauth?.token_url ?? app.baseUrl + "/auth/v1/token");
+    // A session belongs to one selected project/environment; never refresh elsewhere.
+    if (s.oauth && url.href !== `${app.baseUrl}/auth/v1/oauth/token`) return null;
+    if (!s.oauth) url.searchParams.set("grant_type", "refresh_token");
+    const form = s.oauth ? new URLSearchParams({ grant_type: "refresh_token",
+      refresh_token: s.refresh_token!, client_id: s.oauth.client_id }) : undefined;
     const res = await fetch(url, {
       method: "POST",
-      headers: { apikey: app.anonKey, "content-type": "application/json", connection: "close" },
-      body: JSON.stringify({ refresh_token: s.refresh_token }),
+      headers: { apikey: app.anonKey, "content-type": form ? "application/x-www-form-urlencoded" : "application/json", connection: "close" },
+      body: form?.toString() ?? JSON.stringify({ refresh_token: s.refresh_token }),
+      ...(s.oauth ? { redirect: "error" as const, signal: AbortSignal.timeout(15_000) } : {}),
     });
     if (!res.ok) return null;
     const b: any = await res.json().catch(() => ({}));
@@ -49,6 +54,7 @@ async function refreshSession(app: AppConfig, s: Session): Promise<Session | nul
       refresh_token: b.refresh_token ?? s.refresh_token,
       expires_at: b.expires_at ?? (b.expires_in ? Math.floor(Date.now() / 1000) + b.expires_in : s.expires_at),
       strategy: s.strategy,
+      ...(s.oauth ? { oauth: s.oauth } : {}),
     };
     saveSession(app.scopeId, next);
     return next;

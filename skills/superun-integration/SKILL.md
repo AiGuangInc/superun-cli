@@ -1,6 +1,6 @@
 ---
 name: superun-integration
-description: Make a Supabase application "superun-ready" so its users can operate it through the superun CLI. Use when a developer wants their app to support superun — exposing Edge Functions to the CLI via an OpenAPI manifest, implementing the OAuth 2.1 consent page for browser login, or enabling the project's OAuth authorization server. Covers all three integration steps and their exact API contracts.
+description: Make a Supabase application "superun-ready" so its users can operate it through the superun CLI. Use when a developer wants their app to support superun — exposing Edge Functions to the CLI via an OpenAPI manifest, implementing the OAuth 2.1 consent page for browser login, enabling the project's OAuth authorization server, or adding managed login for remote agent sandboxes. Covers all three integration steps and their exact API contracts.
 ---
 
 # Making a Supabase app superun-ready
@@ -180,3 +180,60 @@ superun fn                      # exercises Step 1
   DCR disabled, and have users pass `--oauth-client-id <id>`.
 - Never embed a service-role key in the consent page — the user's `access_token`
   authorizes the consent calls; the anon key is public by design.
+
+
+## Managed login for remote agent sandboxes
+
+`superun login --managed` uses the same Supabase OAuth Authorization Code + PKCE
+flow, with a hosted callback and private polling instead of a loopback listener.
+It is not RFC 8628 Device Grant. It needs Steps 2 and 3 above, plus a hosted relay;
+CLI installation alone does not provision that service.
+
+Register a public client (`token_endpoint_auth_method: none`, grants
+`authorization_code` and `refresh_token`) with its exact HTTPS callback URL, normally
+`<selected Supabase URL>/functions/v1/superun-oauth/callback`. DCR is not needed.
+The CMA `cma-agent-client` skill's `blueprints/superun-cli-agent.md` provides the
+complete setup and drop-in `assets/managed-oauth/index.ts` and migration. When that
+skill is unavailable, the app's relay must implement this contract:
+
+| Endpoint | Contract |
+|---|---|
+| `POST /requests` | Accept `{code_challenge,code_challenge_method:"S256"}`. Return `201 {request_id,poll_token,client_id,redirect_uri,authorization_url,expires_in,interval}`. |
+| `GET /callback` | Accept the OAuth `state` (request id) and `code` or `error`. Complete only a live pending request. Show a fixed completion/decline page. |
+| `POST /poll` | Accept `{request_id,poll_token}`. Return `202 {status:"pending"}`, `200 {status:"authorized",code}`, `403 {error:"access_denied"}`, or `410 {error:"expired_request"}`. |
+
+The authorization URL must be this selected project's `/auth/v1/oauth/authorize`,
+with `response_type=code`, the registered client id, the exact relay `/callback`,
+`state=request_id`, the supplied PKCE challenge/method and `scope=email`. Include
+its public anon `apikey` if the gateway requires it. The response's `expires_in`
+is a positive number of seconds, at most 600 (recommended 300); `interval` is
+between 1 and 30 seconds (recommended 2). The callback uses that same relay base,
+with no query/fragment. All production endpoints use HTTPS.
+
+Generate independent high-entropy request ids and polling secrets. Keep the polling
+secret out of the authorization URL; hash it server-side, expire requests, atomically
+consume completed codes, and deny public table access. Return `Cache-Control:
+no-store`; do not log callback queries, authorization codes or polling request bodies.
+Apply public-endpoint rate limits. The relay never receives a PKCE verifier or user
+access/refresh tokens; the CLI exchanges the code directly at
+`<selected Supabase URL>/auth/v1/oauth/token`. A lost one-time claim response requires
+a new login. Browser callbacks and polling are pre-login operations, so a Supabase
+relay function needs `verifyJwt=false` and its own polling-secret checks.
+
+```bash
+superun login --managed
+# Override only when the app uses a custom public relay base:
+superun login --managed --managed-url https://<relay-base>
+```
+
+Show the printed authorization link in the conversation and let the human approve
+it. The CLI keeps its verifier and polling secret private, stores the resulting
+OAuth session per selected project/environment, and refreshes with `client_id` at
+the OAuth token endpoint. Use a separate private `SUPERUN_HOME` for each user/session.
+A fresh ephemeral sandbox must authorize again; do not export the browser's session.
+OAuth identity scopes do not create read-only database permissions: enforce access
+with RLS and the application's actual Edge Function checks.
+
+Verify from the real sandbox: human approval followed by an authenticated db/fn
+request, denial/expiry, refresh after access-token expiry, and tenant isolation.
+`whoami` decodes local JWT claims only and is not server-side acceptance.
