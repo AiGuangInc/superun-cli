@@ -153,6 +153,23 @@ superun --app shop --env production mcp
 
 会话自动续期:当 access token 临近过期、或请求返回 `401` 时,superun 会用存储的 refresh token 换取新 token 并透明持久化。
 
+### 智能体沙箱中的 managed 登录
+
+```bash
+superun login --managed
+# 应用配置了其他公开回调中转地址时：
+superun login --managed --managed-url https://<relay-base>
+```
+
+CLI 输出授权链接，用户在自己的浏览器登录并确认；CLI 轮询领取授权码。
+沙箱无需浏览器或入站端口。这是 Supabase 授权码 + PKCE 配合云端回调中转，
+不是 Device Grant。应用需先部署回调服务（默认位于所选 Supabase 地址的
+`/functions/v1/superun-oauth`）、注册公开 OAuth 客户端并实现同意页。
+具体见[managed 接入契约](skills/superun-integration/SKILL.md#managed-login-for-remote-agent-sandboxes)。
+中转服务只处理一次性授权码，令牌由 CLI 私有保存，并通过 OAuth token 端点刷新。
+项目和生产／调试环境分别保存会话；每个用户／会话使用独立的 `SUPERUN_HOME`，
+不再复制浏览器 session 到沙箱。
+
 ### 浏览器登录(OAuth 2.1)
 
 `superun login --browser` 使用项目内置的 OAuth 2.1 授权服务器。CLI 已实现完整流程:OIDC discovery、动态客户端注册(DCR)、授权码 + PKCE、token 交换。启用需后端(GoTrue):

@@ -1,7 +1,7 @@
 {
-  "version": "0.1.4",
+  "version": "0.1.5",
   "notes": [
-    "修复 CLI 调用 GET/HEAD Edge Function 时默认携带空 JSON 请求体、导致请求在发出前失败的问题。",
-    "GET/HEAD 的非空 --data/--file 输入明确报错，避免参数被静默忽略；POST 等方法保持原有请求体行为。"
+    "新增 superun login --managed：通过云端回调和轮询完成授权码 + PKCE 登录，适用于没有浏览器和入站端口的智能体沙箱。",
+    "Managed 会话使用 OAuth token 端点自动刷新，并按项目与生产／调试环境隔离；同步补充接入文档。应用须另行部署回调服务并配置 OAuth 客户端与同意页。"
   ]
 }

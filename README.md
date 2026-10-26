@@ -155,6 +155,24 @@ The "current user" is the JWT held in the local session. PostgREST RLS and `veri
 
 Sessions refresh automatically: when an access token is near expiry — or a request returns `401` — superun uses the stored refresh token to obtain a new one and persists it transparently.
 
+### Managed login in agent sandboxes
+
+```bash
+superun login --managed
+# Custom hosted relay, if configured by the app:
+superun login --managed --managed-url https://<relay-base>
+```
+
+Prints an approval link and polls while the human signs in through their own browser.
+No browser or inbound callback port is needed in the sandbox. This uses Supabase
+Authorization Code + PKCE with a hosted callback, not Device Grant. The application
+must deploy the relay (default: `<selected Supabase URL>/functions/v1/superun-oauth`),
+register its public OAuth client and implement its consent page first. See the
+[managed integration contract](skills/superun-integration/SKILL.md#managed-login-for-remote-agent-sandboxes).
+The relay handles only one-time authorization codes. Tokens stay in the CLI's private
+session store, scoped by project/environment, and refresh at the OAuth token endpoint.
+Use a private `SUPERUN_HOME` per user/session. No browser session needs to be copied.
+
 ### Browser login (OAuth 2.1)
 
 `superun login --browser` uses the project's built-in OAuth 2.1 authorization server. The CLI implements the full flow: OIDC discovery, Dynamic Client Registration, Authorization Code + PKCE, and token exchange. To enable it, the backend (GoTrue) needs:

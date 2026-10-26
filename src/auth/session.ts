@@ -8,6 +8,8 @@ export interface Session {
   /** epoch 秒 */
   expires_at?: number;
   strategy?: string;
+  /** OAuth sessions refresh at the OAuth token endpoint, not the regular GoTrue endpoint. */
+  oauth?: { client_id: string; token_url: string };
 }
 
 function sessionDir(appId: string): string {
