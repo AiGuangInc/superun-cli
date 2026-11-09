@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AppConfig } from "../config/app.js";
 import { request } from "../transport/client.js";
 import { decodeJwt, type Session } from "./session.js";
+import { LoginFlowError, loginRequestSignal, type LoginFlowOptions } from "./flow.js";
 
 export type StrategyId = "token" | "password" | "otp" | "browser" | "custom";
 
@@ -32,7 +33,7 @@ export async function loginWithPassword(app: AppConfig, email: string, password:
   };
 }
 
-export interface BrowserOpts {
+export interface BrowserOpts extends LoginFlowOptions {
   port: number;
   /** 覆盖项:对接非 Supabase 的自有 OAuth AS 时用;默认走该项目 OAuth server 的 discovery。 */
   authorizeUrl?: string;
@@ -54,7 +55,7 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
   let tokenUrl = opts.tokenUrl;
   let registrationUrl: string | undefined;
   if (!authorizeUrl || !tokenUrl) {
-    const d = await discover(app);
+    const d = await discover(app, opts.signal);
     authorizeUrl = authorizeUrl ?? d.authorize;
     tokenUrl = tokenUrl ?? d.token;
     registrationUrl = d.register;
@@ -68,7 +69,7 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
           "Enable GOTRUE_OAUTH_SERVER_ALLOW_DYNAMIC_REGISTRATION=true on the backend, or pass --oauth-client-id.",
       );
     }
-    clientId = await dynamicRegister(app, registrationUrl, opts.port);
+    clientId = await dynamicRegister(app, registrationUrl, opts.port, opts.signal);
     writeCachedClientId(app, opts.port, clientId);
   }
 
@@ -79,6 +80,15 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
 
   const code = await new Promise<string>((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout>;
+    const cleanup = () => {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", abort);
+      if (server.listening) server.close();
+    };
+    const abort = () => {
+      cleanup();
+      reject(new LoginFlowError("cancelled", "Authorization cancelled"));
+    };
     const server = createServer((req, res) => {
       const u = new URL(req.url ?? "/", redirect);
       if (u.pathname === "/favicon.ico") {
@@ -103,18 +113,20 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
           (ok ? `<script>setTimeout(function(){window.close()},500)</script>` : ``) +
           `</body>`,
       );
-      clearTimeout(timer);
-      server.close();
-      if (err) reject(new Error(err));
+      cleanup();
+      if (err) reject(new LoginFlowError(sp.get("error") === "access_denied" ? "denied" : "failed", err));
       else if (!c) reject(new Error("Callback did not include a code"));
       else if (sp.get("state") !== state) reject(new Error("State mismatch (possible CSRF); aborted"));
       else resolve(c);
     });
     server.on("error", (e) => {
-      clearTimeout(timer);
+      cleanup();
       reject(e);
     });
+    if (opts.signal?.aborted) { abort(); return; }
+    opts.signal?.addEventListener("abort", abort, { once: true });
     server.listen(opts.port, () => {
+      if (opts.signal?.aborted) { abort(); return; }
       const sep = authorizeUrl!.includes("?") ? "&" : "?";
       const url =
         `${authorizeUrl}${sep}response_type=code&client_id=${encodeURIComponent(clientId!)}` +
@@ -124,12 +136,16 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
         `&code_challenge=${challenge}&code_challenge_method=S256&scope=${encodeURIComponent("email")}` +
         // 浏览器导航带不了请求头,把 anon apikey 放进 query 让 Kong 网关放行(anon key 本就是公开的)
         `&apikey=${encodeURIComponent(app.anonKey)}`;
-      console.error(`Sign in and authorize in your browser (if it does not open automatically, visit this URL):\n  ${url}`);
-      openBrowser(url);
       timer = setTimeout(() => {
-        server.close();
-        reject(new Error("Login timed out (no callback within 3 minutes)"));
+        cleanup();
+        reject(new LoginFlowError("expired", "Login timed out (no callback within 3 minutes)"));
       }, 180_000);
+      if (opts.onAuthorizationReady) {
+        try { opts.onAuthorizationReady({ url, expiresAt: Date.now() + 180_000 }); }
+        catch (error) { cleanup(); reject(error); return; }
+      }
+      else console.error(`Sign in and authorize in your browser (if it does not open automatically, visit this URL):\n  ${url}`);
+      openBrowser(url);
     });
   });
 
@@ -144,6 +160,7 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json", apikey: app.anonKey },
     body: form.toString(),
+    ...(opts.signal ? { signal: loginRequestSignal(opts.signal, 15_000) } : {}),
   });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || !body.access_token) throw new Error(`Token exchange failed, HTTP ${res.status}: ${JSON.stringify(body)}`);
@@ -153,6 +170,7 @@ export async function loginWithBrowser(app: AppConfig, opts: BrowserOpts): Promi
     refresh_token: body.refresh_token,
     expires_at: body.expires_at ?? (body.expires_in ? Math.floor(Date.now() / 1000) + body.expires_in : claims?.exp),
     strategy: "browser",
+    oauth: { client_id: clientId, token_url: tokenUrl! },
   };
 }
 
@@ -163,9 +181,10 @@ export function notImplemented(id: StrategyId): never {
 
 // ---- OAuth 2.1 server 对接(discovery + DCR)----
 
-async function discover(app: AppConfig): Promise<{ authorize: string; token: string; register?: string }> {
+async function discover(app: AppConfig, signal?: AbortSignal): Promise<{ authorize: string; token: string; register?: string }> {
   const res = await fetch(`${app.baseUrl}/auth/v1/.well-known/openid-configuration`, {
     headers: { apikey: app.anonKey },
+    ...(signal ? { signal: loginRequestSignal(signal, 15_000) } : {}),
   });
   if (!res.ok) throw new Error(`Failed to fetch OIDC discovery, HTTP ${res.status} (the backend OAuth server may be disabled)`);
   const d: any = await res.json();
@@ -180,10 +199,11 @@ async function discover(app: AppConfig): Promise<{ authorize: string; token: str
   return { authorize, token, register: abs(d.registration_endpoint) };
 }
 
-async function dynamicRegister(app: AppConfig, registrationUrl: string, port: number): Promise<string> {
+async function dynamicRegister(app: AppConfig, registrationUrl: string, port: number, signal?: AbortSignal): Promise<string> {
   const res = await fetch(registrationUrl, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json", apikey: app.anonKey },
+    ...(signal ? { signal: loginRequestSignal(signal, 15_000) } : {}),
     body: JSON.stringify({
       client_name: "superun",
       redirect_uris: [`http://localhost:${port}`, `http://127.0.0.1:${port}`],
@@ -231,7 +251,9 @@ function openBrowser(url: string): void {
         ? ["cmd", ["/c", "start", "", url]]
         : ["xdg-open", [url]];
   try {
-    spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).unref();
+    const child = spawn(cmd as string, args as string[], { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref();
   } catch {
     /* 打不开就靠上面打印的 URL 手动访问 */
   }

@@ -165,6 +165,15 @@ restarted / reconfigured before they take effect. Tell the user this explicitly.
 
 ## Verify
 
+交付给使用者的技能或连接器接入指令，统一要求先安装或升级到最新稳定版，再检查版本，不以“已有兼容 CLI”为由跳过更新：
+
+```bash
+npm install -g superun-cli@latest
+superun --version
+```
+
+已有项目注册配置和有效授权继续复用。接入指令包含登录恢复：自动续期失败或没有可用 refresh_token，且错误返回 `nextAction=start_authorization` 时暂停原操作，MCP 用 `start_authorization` 展示“重新登录”入口，再用 `authorization_status` 确认完成；仅继续原来未完成的任务，换账号先确认，不确定的写入先核验。暂时故障或配置错误保留真实原因及已有凭据，也提供一次重新登录兜底；登录失败、拒绝、取消、超时或登录后仍有认证错误时停止，不循环发起。`nextAction=confirm_account` 时先核对换号或退出的选择。业务 401 和 403 不触发重新登录。CLI 升级后，常驻 MCP 连接器重新连接。
+
 ```bash
 superun init --name myapp --url https://<app> --anon-key <key> \
   --manifest https://<app>/superun/openapi.json

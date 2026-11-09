@@ -137,7 +137,9 @@ MCP 只需在 WorkBuddy 中配置一次,不是每次对话都粘贴一段指令�
 
 `--app` 既可以直接使用 `init --name` 时填写的别名(如 `shop`),也可以使用生成的项目 id。保留 `--env production` 可将 WorkBuddy 固定连到生产环境;若要使用项目单独配置的 debug 环境,则改为 `--env debug`。如果 WorkBuddy 找不到全局安装的命令,请把 `command` 换成 `which superun`(macOS/Linux)或 `where superun`(Windows)返回的绝对路径。重启或重新连接 MCP 服务后,就可以在对话里说“列出 shop 项目的表”或“介绍一下订单相关函数”。
 
-服务固定暴露 7 个工具:`project_status`、`list_tables`、`query_rows`、`list_function_groups`、`list_functions`、`describe_function`、`call_function`。数据库能力刻意限制为只读(`GET`、单次最多 200 行),不提供原始增删改或 RPC 工具。每个结果最多 1 MiB,超限时需缩小 `columns` 或 `limit`。`call_function` 会按发布的输入 schema 校验,并强制要求 `userConfirmed: true`;MCP 宿主只有在用户已于当前对话明确确认“这个具体函数 + 这份具体 input”后才可以设置该字段。
+服务暴露 9 个工具:`project_status`、`start_authorization`、`authorization_status`、`list_tables`、`query_rows`、`list_function_groups`、`list_functions`、`describe_function`、`call_function`。数据库能力刻意限制为只读(`GET`、单次最多 200 行),不提供原始增删改或 RPC 工具。每个结果最多 1 MiB,超限时需缩小 `columns` 或 `limit`。`call_function` 会按发布的输入 schema 校验,并强制要求 `userConfirmed: true`;MCP 宿主只有在用户已于当前对话明确确认“这个具体函数 + 这份具体 input”后才可以设置该字段。
+
+没有可用 refresh_token 或自动续期失败时，认证错误会返回 `nextAction=start_authorization`。Agent 暂停原任务，调用 `start_authorization` 展示当前项目的“重新登录”入口，再用 `authorization_status` 确认结果。登录成功后同一 MCP 连接可直接继续任务，不需要重新配置；换账号先确认，结果不确定的写入先核验，避免重复执行。等待超过一次有界查询时提示用户完成后继续，不反复启动登录或无限轮询。暂时故障或认证配置错误也提供一次重新登录兜底，保留真实原因和已有凭据；重新登录失败或登录后仍无法恢复时停止并说明原因。`nextAction=confirm_account` 时先核对换号或退出的选择。业务 401 和 403 不触发重新登录。
 
 对应的服务启动命令是:
 
@@ -151,7 +153,9 @@ superun --app shop --env production mcp
 
 “当前用户”即本地会话持有的 JWT。PostgREST 的 RLS 与 `verifyJwt: true` 的函数都使用后端的 `jwtSecret` 验签,因此 token 必须由该实例签发 —— 由 GoTrue 签发,或用相同 secret 签出。来自其他鉴权体系的 token 会在运行时被拒(`401`),此时仅能调用 `verifyJwt: false` 的函数。
 
-会话自动续期:当 access token 临近过期、或请求返回 `401` 时,superun 会用存储的 refresh token 换取新 token 并透明持久化。
+会话自动续期:当 access token 临近过期、或请求返回明确的认证类 `401` 时,superun 会用存储的 refresh token 换取新 token 并透明持久化。
+
+确定需要重新登录时，终端命令在 stderr 输出 `AUTH_REQUIRED` JSON，保留失败退出码；其中包含项目、环境、可执行登录命令的参数和 `safeToRetry`。MCP 返回同样的结构化错误，随后可使用授权工具恢复。网络暂时失败返回 `AUTH_TEMPORARY_FAILURE`，认证配置问题返回 `AUTH_REFRESH_FAILED`，两者均保留原凭据。
 
 ### 智能体沙箱中的 managed 登录
 
