@@ -29,8 +29,19 @@ Help, version, completion, and explicit `superun upgrade` entry points remain di
 - To add debug to an existing project, use `superun app set --debug-url <url> --debug-anon-key <key>`. Supplying the complete pair makes debug the project default.
 - Not logged in? Public/anon operations may still work. For user-scoped data or `verifyJwt` functions, authenticate with `superun login --browser` (or `--token <jwt>`). Never fabricate a token.
 - In a remote agent sandbox, use `superun login --managed` instead of `--browser`. This requires the app's hosted `superun-oauth` relay and OAuth consent page. Show the printed authorization URL to the human, preserve the waiting shell, and continue only after login succeeds. It opens no browser and listens on no local port. Do not copy browser access/refresh tokens into the sandbox.
-- Sessions refresh automatically. A `401` means the session is unrecoverable (expired refresh token, or a token from a foreign auth system) — tell the user to `superun login` again.
+- 会话仍按原逻辑自动续期；无可用 refresh_token 或续期失败时，按错误中的 `nextAction` 处理。面向用户统一称为“重新登录”，不要求用户区分续期与 OAuth 授权。业务 401 和 403 不触发重新登录。
 - If a project has a complete debug target, superun uses debug by default. Use `-e production` only when the user explicitly wants to inspect or operate production. Each target has its own login session, OAuth client, PostgREST schema cache, and Edge Function cache.
+
+## 重新登录后继续任务
+
+1. 收到 `AUTH_REQUIRED`，或 `AUTH_TEMPORARY_FAILURE` / `AUTH_REFRESH_FAILED` 且 `nextAction=start_authorization` 时，记住当前项目、环境、未完成的操作及其参数、原有用户确认和 `safeToRetry`，暂停需要该身份的操作。自动续期已失败，直接提供一次“重新登录”入口。暂时故障或配置错误仍保留真实原因和已有凭据，不宣称登录必然能修复。
+2. MCP 中调用 `start_authorization`：本机且浏览器回调可到达 CLI 时用 `mode=browser`，远程沙箱用 `mode=managed`。以“重新登录”为入口名称展示返回的 `authorizationUrl`，让用户完成登录和同意。没有 MCP 授权工具、但可运行 CLI 时，按错误中 `loginCommands` 给出的命令与参数执行，保持相同项目和环境。
+3. MCP 使用返回的 `authorizationId` 调用 `authorization_status`，可设置 `waitSeconds=20`。仍为 `pending` 时告诉用户完成后回复“继续”，不要重复发起或无限轮询；内部流程会继续等待。请求丢失或 MCP 重启返回 `AUTHORIZATION_NOT_FOUND` 时重新发起。
+4. `authorized` 后核对账号及 `canContinueTask`。账号变化时先取得用户确认；拒绝、取消、过期或失败时停止需要该身份的任务，不自动再次启动登录。登录成功后仍出现认证错误时也停止并说明原因，不能反复拉起页面。
+5. 只继续原任务未完成的操作。查询可以重试；写入仅在原确认仍适用、账号一致且 `safeToRetry=true` 时重试。`safeToRetry=false` 的写入先读取核验结果，不能盲目重放，也不重跑已完成步骤。
+6. `nextAction=confirm_account`（如 `reason=session_changed`）表示用户已换号或退出，先核对用户选择，不自动重新登录覆盖该选择。重新登录失败时保留已有凭据和原任务，明确提示网络、登录方式或项目认证配置问题，等待用户处理。登录流程只返回链接、状态与账号摘要，不索取或展示原始令牌、密码、授权码或轮询凭据。
+
+重新登录成功后，同一 MCP 连接的下一次调用会读取新会话，无需重新配置连接器。CLI 更新后仍需重新加载常驻 MCP 进程。
 
 ## 先读取当前项目的业务说明
 

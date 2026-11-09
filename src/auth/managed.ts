@@ -2,11 +2,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AppConfig } from "../config/app.js";
 import { decodeJwt, type Session } from "./session.js";
+import { LoginFlowError, loginRequestSignal, type LoginFlowOptions } from "./flow.js";
 
 /** Hosted callback + polling transport for Supabase Authorization Code with PKCE.
  * This is not a device grant: the relay never receives the verifier or user tokens.
  */
-export async function loginWithManaged(app: AppConfig, endpoint?: string): Promise<Session> {
+export async function loginWithManaged(app: AppConfig, endpoint?: string, options: LoginFlowOptions = {}): Promise<Session> {
   const relay = new URL(endpoint ?? `${app.baseUrl}/functions/v1/superun-oauth`);
   if (relay.protocol !== "https:" && !(relay.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(relay.hostname))) {
     throw new Error("Managed login requires HTTPS (HTTP is allowed only on loopback for local development)");
@@ -21,7 +22,7 @@ export async function loginWithManaged(app: AppConfig, endpoint?: string): Promi
   const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
   if (relay.origin === new URL(app.baseUrl).origin) headers.apikey = app.anonKey;
   const start = await fetch(`${base}/requests`, {
-    method: "POST", headers, redirect: "error", signal: AbortSignal.timeout(15_000),
+    method: "POST", headers, redirect: "error", signal: loginRequestSignal(options.signal, 15_000),
     body: JSON.stringify({ code_challenge: challenge, code_challenge_method: "S256" }),
   });
   const data = await start.json().catch(() => ({}));
@@ -49,26 +50,27 @@ export async function loginWithManaged(app: AppConfig, endpoint?: string): Promi
 
   // Deliberately no browser spawn and no loopback listener. The host UI displays this
   // public URL to the human; the private polling credential stays inside this process.
-  console.error(`Authorize this CLI in your browser:\n  ${authorization.href}\nWaiting for approval (up to ${data.expires_in}s)...`);
   const deadline = Date.now() + data.expires_in * 1000;
+  if (options.onAuthorizationReady) options.onAuthorizationReady({ url: authorization.href, expiresAt: deadline });
+  else console.error(`Authorize this CLI in your browser:\n  ${authorization.href}\nWaiting for approval (up to ${data.expires_in}s)...`);
   while (Date.now() < deadline) {
-    await delay(Math.min(data.interval * 1000, deadline - Date.now()));
+    await delay(Math.min(data.interval * 1000, deadline - Date.now()), undefined, { signal: options.signal });
     if (Date.now() >= deadline) break;
     const poll = await fetch(`${base}/poll`, {
       method: "POST", headers, redirect: "error",
-      signal: AbortSignal.timeout(Math.min(15_000, Math.max(1, deadline - Date.now()))),
+      signal: loginRequestSignal(options.signal, Math.min(15_000, Math.max(1, deadline - Date.now()))),
       body: JSON.stringify({ request_id: data.request_id, poll_token: data.poll_token }),
     });
     const result = (await poll.json().catch(() => null)) ?? {};
     if (poll.status === 202 && result.status === "pending") continue;
-    if (result.error === "access_denied") throw new Error("Managed login was denied. No session was saved.");
-    if (result.error === "expired_request") throw new Error("Managed login expired. Run superun login --managed again.");
+    if (result.error === "access_denied") throw new LoginFlowError("denied", "Managed login was denied. No session was saved.");
+    if (result.error === "expired_request") throw new LoginFlowError("expired", "Managed login expired. Run superun login --managed again.");
     if (!poll.ok || result.status !== "authorized" || typeof result.code !== "string" || !result.code) {
       throw new Error(`Managed login polling failed (HTTP ${poll.status}). Run login again; no session was saved.`);
     }
     const tokenUrl = `${app.baseUrl}/auth/v1/oauth/token`;
     const exchange = await fetch(tokenUrl, {
-      method: "POST", redirect: "error", signal: AbortSignal.timeout(15_000),
+      method: "POST", redirect: "error", signal: loginRequestSignal(options.signal, 15_000),
       headers: { apikey: app.anonKey, "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
       body: new URLSearchParams({ grant_type: "authorization_code", code: result.code,
         redirect_uri: data.redirect_uri, client_id: data.client_id, code_verifier: verifier }),
@@ -84,5 +86,5 @@ export async function loginWithManaged(app: AppConfig, endpoint?: string): Promi
       strategy: "managed", oauth: { client_id: data.client_id, token_url: tokenUrl },
     };
   }
-  throw new Error("Managed login timed out. Run superun login --managed again.");
+  throw new LoginFlowError("expired", "Managed login timed out. Run superun login --managed again.");
 }

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -11,8 +11,10 @@ import { ensureManifest, readProjectSkill } from "../discovery/functions-manifes
 import { getPgrestSpec, listTables } from "../discovery/pgrest.js";
 import { request } from "../transport/client.js";
 import { validateInput } from "../validate.js";
+import { AuthorizationManager } from "../auth/authorization.js";
+import { AuthRequiredError, authErrorData } from "../auth/errors.js";
 
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version as string;
 const DEFAULT_ROW_LIMIT = 50;
 const MAX_ROW_LIMIT = 200;
 const MAX_TOOL_RESULT_BYTES = 1024 * 1024;
@@ -81,6 +83,8 @@ function oversizedResult(bytes: number): CallToolResult {
 }
 
 function toolError(error: unknown): CallToolResult {
+  const auth = authErrorData(error);
+  if (auth) return { ...toolResult(auth), isError: true };
   const message = error instanceof Error ? error.message : String(error);
   const bytes = Buffer.byteLength(message, "utf8");
   if (bytes > MAX_TOOL_RESULT_BYTES) return oversizedResult(bytes);
@@ -101,9 +105,7 @@ async function runTool(fn: () => Promise<unknown> | unknown): Promise<CallToolRe
 function requireSession(app: AppConfig): Session {
   const session = loadSession(app.scopeId);
   if (!session) {
-    throw new Error(
-      `This tool requires login. Run \`superun --app ${app.id} --env ${app.environment} login --browser\` first.`,
-    );
+    throw new AuthRequiredError(app, "no_session");
   }
   return session;
 }
@@ -188,9 +190,20 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
         "for data meanings, workflow steps, parameter handoffs, and completion checks. It retrieves the latest guide each time. " +
         "If the guide is missing or unreadable, report that limitation; do not invent business rules. Discover tables/functions before using them. " +
         "Database access is read-only and limited. call_function may change business data and requires userConfirmed=true only after " +
-        "the user has approved that exact function and exact input in the current conversation.",
+        "the user has approved that exact function and exact input in the current conversation. " +
+        "认证错误返回 nextAction=start_authorization 时暂停原任务，为当前项目调用 start_authorization。" +
+        "向用户统一提供‘重新登录’入口，展示 authorizationUrl，然后用同一 authorizationId 调用 authorization_status。" +
+        "等待一次后仍 pending 时，提示用户完成后回复继续；不要重复启动或无限轮询。" +
+        "authorized 后核对 identity 和 canContinueTask；账号变化先取得用户确认。" +
+        "仅继续原任务未完成的操作，遵守 safeToRetry 和原有写入确认，结果不确定的写入先核验。" +
+        "自动续期失败（包括暂时故障或配置错误）也提供一次重新登录兜底，不让用户区分续期与授权。" +
+        "nextAction=confirm_account 时先核对用户换号或退出的选择，不自动重新登录。" +
+        "重新登录失败、拒绝、取消、超时或登录后仍无法恢复时说明原因并停止，不循环弹登录页。业务 401 和 403 不触发重新登录。",
     },
   );
+  const authorization = new AuthorizationManager(app);
+  const previousClose = server.server.onclose;
+  server.server.onclose = () => { authorization.close(); previousClose?.call(server.server); };
 
   server.registerTool(
     "project_status",
@@ -221,6 +234,32 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
           functionManifestCached: existsSync(join(app.runtimeDir, "functions", "index.json")),
         };
       }),
+  );
+
+  server.registerTool(
+    "start_authorization",
+    {
+      title: "重新登录当前项目",
+      description: "在认证错误返回 nextAction=start_authorization 或用户要求登录时，为当前连接器绑定的项目和环境启动登录。" +
+        "本机且浏览器回调可达 CLI 时用 browser，远程沙箱用 managed。" +
+        "向用户展示返回的 authorizationUrl，入口名称统一为‘重新登录’，由用户完成登录和同意；不执行任何业务操作。复用仍在等待的登录流程。",
+      inputSchema: z.object({ mode: z.enum(["browser", "managed"]) }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    async ({ mode }) => runTool(() => authorization.start(mode)),
+  );
+
+  server.registerTool(
+    "authorization_status",
+    {
+      title: "查询项目登录状态",
+      description: "查询 start_authorization 返回的登录流程 ID，单次最多等待 20 秒。" +
+        "仍 pending 时提示用户完成后继续，避免无限轮询。authorized 后核对 identity、canContinueTask 和原操作 safeToRetry。" +
+        "换账号先取得用户确认，不确定的写入先核验结果，不重跑已完成步骤。历史授权成功不能代替当前业务请求验证。",
+      inputSchema: z.object({ authorizationId: z.string().min(1).max(128), waitSeconds: z.number().int().min(0).max(20).default(0) }).strict(),
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ authorizationId, waitSeconds }) => runTool(() => authorization.status(authorizationId, waitSeconds)),
   );
 
   server.registerTool(
@@ -350,9 +389,7 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
         const fn = resolveListedFunction(tree, name);
         const session = loadSession(app.scopeId);
         if (fn.verifyJwt && !session) {
-          throw new Error(
-            `Function "${name}" requires login (verifyJwt=true); run \`superun --app ${app.id} --env ${app.environment} login --browser\` first`,
-          );
+          throw new AuthRequiredError(app, "no_session");
         }
 
         const method = (fn.method ?? "post").toUpperCase();

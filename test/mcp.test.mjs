@@ -31,6 +31,8 @@ const DEBUG_ACCESS_TOKEN = [
 ].join(".");
 const TOOL_NAMES = [
   "project_status",
+  "start_authorization",
+  "authorization_status",
   "list_tables",
   "query_rows",
   "list_function_groups",
@@ -225,14 +227,14 @@ after(async () => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 
-test("publishes exactly the seven guarded MCP tools", async () => {
+test("publishes the guarded business tools and scoped authorization tools", async () => {
   const { tools } = await client.listTools();
   assert.deepEqual(
     tools.map(tool => tool.name),
     TOOL_NAMES,
   );
   assert.equal(tools.find(tool => tool.name === "call_function").annotations.destructiveHint, true);
-  for (const tool of tools.filter(tool => tool.name !== "call_function")) {
+  for (const tool of tools.filter(tool => !["call_function", "start_authorization"].includes(tool.name))) {
     assert.equal(tool.annotations.readOnlyHint, true, `${tool.name} must be read-only`);
   }
   assert.equal(tools.some(tool => /insert|update|delete|rpc/i.test(tool.name)), false);
@@ -309,7 +311,8 @@ test("discovers tables and queries rows with GET, login, RLS identity, and bound
   clearSession(APP_ID);
   const loggedOut = await client.callTool({ name: "query_rows", arguments: { table: "orders" } });
   assert.equal(loggedOut.isError, true);
-  assert.match(valueOf(loggedOut), /requires login/);
+  assert.equal(valueOf(loggedOut).code, "AUTH_REQUIRED");
+  assert.equal(valueOf(loggedOut).nextAction, "start_authorization");
   saveSession(APP_ID, { access_token: ACCESS_TOKEN, strategy: "token" });
 });
 

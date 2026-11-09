@@ -6,6 +6,7 @@ import { loadSession } from "../auth/session.js";
 import { request } from "../transport/client.js";
 import { validateInput } from "../validate.js";
 import { readProjectSkill } from "../discovery/functions-manifest.js";
+import { AuthRequiredError } from "../auth/errors.js";
 
 /** 叶命令名 = 去掉分组前缀后的函数名(api/runtime-tick 在组 api 下 → runtime-tick)。 */
 function leafName(name: string, group: string): string {
@@ -28,7 +29,7 @@ function contractHelp(tree: FunctionsTree, name: string): string {
 async function callFunction(app: AppConfig, tree: FunctionsTree, name: string, opts: any): Promise<void> {
   const fnDef = tree.resolveLeaf(name);
   const session = loadSession(app.scopeId);
-  if (fnDef.verifyJwt && !session) throw new Error(`Function "${name}" requires login (verifyJwt=true); run \`superun login\` first`);
+  if (fnDef.verifyJwt && !session) throw new AuthRequiredError(app, "no_session");
 
   let body: unknown;
   if (opts.file) body = JSON.parse(readFileSync(opts.file, "utf8"));

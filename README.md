@@ -139,7 +139,7 @@ MCP is a one-time WorkBuddy configuration, not a command to paste into every cha
 
 `--app` accepts either the alias passed to `init --name` (such as `shop`) or the generated project id. Keep `--env production` to pin WorkBuddy to production, or change it to `--env debug` for the project's separately configured debug target. If WorkBuddy cannot find globally installed commands, use the absolute path returned by `which superun` (macOS/Linux) or `where superun` (Windows). Restart or reconnect the MCP server, then ask WorkBuddy questions such as “list the tables in shop” or “describe the order functions.”
 
-The server exposes exactly seven tools: `project_status`, `list_tables`, `query_rows`, `list_function_groups`, `list_functions`, `describe_function`, and `call_function`. Database access is intentionally read-only (`GET` only, maximum 200 rows) with no raw insert/update/delete/RPC tool. Every result is capped at 1 MiB; narrow `columns` or `limit` if the server asks. `call_function` validates the published input schema and requires `userConfirmed: true`; an MCP host may set it only after the user explicitly approves that exact function and exact input in the current conversation.
+The server exposes nine tools: `project_status`, `start_authorization`, `authorization_status`, `list_tables`, `query_rows`, `list_function_groups`, `list_functions`, `describe_function`, and `call_function`. Database access is intentionally read-only (`GET` only, maximum 200 rows) with no raw insert/update/delete/RPC tool. Every result is capped at 1 MiB; narrow `columns` or `limit` if the server asks. `call_function` validates the published input schema and requires `userConfirmed: true`; an MCP host may set it only after the user explicitly approves that exact function and exact input in the current conversation.
 
 The equivalent server command is:
 
@@ -153,7 +153,7 @@ Its stdout is reserved for the MCP protocol; diagnostics go to stderr.
 
 The "current user" is the JWT held in the local session. PostgREST RLS and `verifyJwt: true` functions both validate it against the backend's `jwtSecret`, so the token must be issued by that instance — by GoTrue, or signed with the same secret. Tokens from a foreign auth system are rejected at runtime (`401`); only `verifyJwt: false` functions remain callable.
 
-Sessions refresh automatically: when an access token is near expiry — or a request returns `401` — superun uses the stored refresh token to obtain a new one and persists it transparently.
+Sessions refresh automatically: when an access token is near expiry — or a request returns a recognized authentication `401` — superun uses the stored refresh token to obtain a new one and persists it transparently.
 
 ### Managed login in agent sandboxes
 
