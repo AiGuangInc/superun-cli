@@ -29,6 +29,8 @@ Help, version, completion, and explicit `superun upgrade` entry points remain di
 - To add debug to an existing project, use `superun app set --debug-url <url> --debug-anon-key <key>`. Supplying the complete pair makes debug the project default.
 - Not logged in? Public/anon operations may still work. For user-scoped data or `verifyJwt` functions, authenticate with `superun login --browser` (or `--token <jwt>`). Never fabricate a token.
 - In a remote agent sandbox, use `superun login --managed` instead of `--browser`. This requires the app's hosted `superun-oauth` relay and OAuth consent page. Show the printed authorization URL to the human, preserve the waiting shell, and continue only after login succeeds. It opens no browser and listens on no local port. Do not copy browser access/refresh tokens into the sandbox.
+- 需要登录的项目，接入验收先执行同一项目、环境下的 `superun whoami --verify --json`，确认 `verified=true`；该选项请求项目认证服务并拒绝匿名用户，本地 `whoami` 或 `HTTP 200`、匿名空数组均不能替代。MCP 使用 `project_status` 的 `verifyIdentity=true`。身份校验通过后，只需一次真实只读业务查询；合法空结果说明当前账号可见范围为空。无登录功能的项目仍按公开权限查询，不要求非匿名身份校验。
+- 密码兜底仅限项目支持邮箱密码、且宿主能通过独立安全凭据控件直接向 stdin 注入密码，不经过对话、模型上下文、命令回显或工具日志时使用：`superun login --password --email <项目邮箱> --password-stdin`。stdin 只是输入通道，不自动保证保密；不能用明文 `--pass` 或 `echo` 拼接密码。没有该通道时继续使用浏览器／managed 登录，授权不可用则说明修复项，不在聊天中索取密码或原始令牌。
 - 会话仍按原逻辑自动续期；无可用 refresh_token 或续期失败时，按错误中的 `nextAction` 处理。面向用户统一称为“重新登录”，不要求用户区分续期与 OAuth 授权。业务 401 和 403 不触发重新登录。
 - If a project has a complete debug target, superun uses debug by default. Use `-e production` only when the user explicitly wants to inspect or operate production. Each target has its own login session, OAuth client, PostgREST schema cache, and Edge Function cache.
 

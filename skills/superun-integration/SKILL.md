@@ -178,10 +178,14 @@ superun --version
 superun init --name myapp --url https://<app> --anon-key <key> \
   --manifest https://<app>/superun/openapi.json
 superun login --browser        # exercises Steps 2 & 3
+superun whoami --verify --json  # verify a non-anonymous user with the project's Auth server
 superun fn                      # exercises Step 1
 ```
 
 ## Security
+
+- 接入指令按项目是否有登录功能验收：需要登录时，CLI 使用 `whoami --verify --json`，MCP 调用 `project_status` 并设置 `verifyIdentity=true`，确认 `verified=true` 后完成一次真实只读查询。无登录功能时仍按公开权限查询；HTTP 200 或匿名空结果不能替代需要登录项目的身份验收。
+- 邮箱密码兜底仅在宿主支持独立保密输入、密码不进入对话、模型上下文及工具日志，并能直接注入 stdin 时使用 `login --password --email <项目邮箱> --password-stdin`。不将密码拼入 `--pass`、`echo` 或对话正文；没有安全通道时说明限制，使用浏览器／managed 登录，不要求用户回传密码或原始令牌。
 
 - Open Dynamic Client Registration lets anyone register a client with an arbitrary
   `redirect_uri`, widening the consent-phishing surface. For production, prefer to
@@ -245,4 +249,5 @@ with RLS and the application's actual Edge Function checks.
 
 Verify from the real sandbox: human approval followed by an authenticated db/fn
 request, denial/expiry, refresh after access-token expiry, and tenant isolation.
-`whoami` decodes local JWT claims only and is not server-side acceptance.
+`whoami` without `--verify` decodes local JWT claims only. Use `whoami --verify --json`
+for server-side non-anonymous identity verification, then perform one real read-only query.

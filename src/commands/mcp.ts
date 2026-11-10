@@ -13,6 +13,7 @@ import { request } from "../transport/client.js";
 import { validateInput } from "../validate.js";
 import { AuthorizationManager } from "../auth/authorization.js";
 import { AuthRequiredError, authErrorData } from "../auth/errors.js";
+import { verifyUserIdentity } from "../auth/identity.js";
 
 const SERVER_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version as string;
 const DEFAULT_ROW_LIMIT = 50;
@@ -209,11 +210,13 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
     "project_status",
     {
       title: "Project status",
-      description: "Show the configured project and local credential/cache state without claiming backend connectivity or exposing credentials.",
+      description: "Show the configured project and local credential/cache state. Set verifyIdentity=true to verify a non-anonymous user with the project's Auth server. Identity verification does not replace a real business query.",
+      inputSchema: z.object({ verifyIdentity: z.boolean().default(false) }),
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () =>
-      runTool(() => {
+    async ({ verifyIdentity }) =>
+      runTool(async () => {
+        const verifiedIdentity = verifyIdentity ? await verifyUserIdentity(app) : undefined;
         const session = loadSession(app.scopeId);
         const claims = session ? decodeJwt(session.access_token) : null;
         return {
@@ -229,8 +232,10 @@ export function createSuperunMcpServer(app: AppConfig): McpServer {
                 email: claims?.email ?? null,
                 role: claims?.role ?? null,
                 expiresAt: session.expires_at ?? claims?.exp ?? null,
+                ...(verifiedIdentity ?? {}),
               }
             : null,
+          ...(verifiedIdentity ? { verified: true } : {}),
           functionManifestCached: existsSync(join(app.runtimeDir, "functions", "index.json")),
         };
       }),
