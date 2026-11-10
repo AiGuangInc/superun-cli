@@ -24,7 +24,7 @@ export async function loginWithPassword(app: AppConfig, email: string, password:
     query: { grant_type: "password" },
     body: { email, password },
   });
-  if (status !== 200) throw new Error(`Login failed, HTTP ${status}: ${JSON.stringify(body)}`);
+  if (status !== 200) throw new Error(`Login failed, HTTP ${status}`);
   return {
     access_token: body.access_token,
     refresh_token: body.refresh_token,

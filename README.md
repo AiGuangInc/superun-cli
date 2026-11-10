@@ -75,10 +75,18 @@ superun -e <debug|production> <command>                       Target an environm
 ```
 superun login --browser                          Sign in via the project's OAuth 2.1 server (PKCE)
 superun login --token <jwt> [--refresh <jwt>]    Use an existing access token
-superun login --password --email <e> --pass <p>  Email & password (GoTrue)
+superun login --password --email <e> --password-stdin  Password via a secure host credential channel (GoTrue)
 superun whoami                                    Decode the current session's JWT claims
+superun whoami --verify --json                    Verify a non-anonymous user with the project's Auth server
 superun logout                                    Clear the local session
 ```
+
+Password input must be injected directly by the host outside chat, model context, command arguments,
+and tool logs. `--password-stdin` alone does not provide that secure channel; do not pipe a plaintext
+password with `echo`. If the host has no secure credential input, use browser or managed login.
+The existing `--pass` option remains available for existing callers, but is not used in Agent setup instructions.
+For projects with login, verify identity before one real read-only query. Public projects can still
+query with their existing public permissions; a successful empty query alone does not prove a user login.
 
 ### Maintenance
 

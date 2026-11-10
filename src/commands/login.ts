@@ -30,7 +30,30 @@ Print the approval link to the human and keep the command running; no local brow
 Requires a deployed relay (default: <selected Supabase URL>/functions/v1/superun-oauth),
 its pre-registered public OAuth client and the app's consent page. See skills/superun-integration/SKILL.md.
 The relay returns a one-time code; only the CLI holds the PKCE verifier and user tokens.
+
+Password fallback: --password-stdin reads one password from standard input until EOF.
+Use only when the host securely injects credentials outside chat, model context, and tool logs.
+Do not put passwords in command arguments or use echo with a plaintext password.
 `;
+
+/** 仅接收宿主直接注入的单行密码；限制大小，错误中不包含输入。 */
+async function readPasswordFromStdin(): Promise<string> {
+  if (process.stdin.isTTY) throw new Error("--password-stdin requires secure credential injection through stdin");
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > 16 * 1024) {
+      process.stdin.destroy();
+      throw new Error("Password input exceeds the allowed size");
+    }
+    chunks.push(buffer);
+  }
+  const password = Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+  if (!password || /[\r\n\0]/.test(password)) throw new Error("Provide one nonempty password through secure stdin");
+  return password;
+}
 
 export function registerLogin(program: Command): void {
   program
@@ -41,6 +64,7 @@ export function registerLogin(program: Command): void {
     .option("--password", "log in with a GoTrue email and password")
     .option("--email <email>", "use with --password")
     .option("--pass <password>", "use with --password")
+    .option("--password-stdin", "read the password from secure stdin; use with --password and --email")
     .option("--browser", "browser login (project OAuth 2.1 server, Authorization Code + PKCE; see help below for the contract)")
     .option("--managed", "headless OAuth + PKCE through a hosted callback; prints an approval URL and polls (no local browser/port)")
     .option("--managed-url <url>", "hosted relay base URL (default: <selected Supabase URL>/functions/v1/superun-oauth)")
@@ -52,6 +76,12 @@ export function registerLogin(program: Command): void {
     .option("--custom", "the app's own login endpoint (not yet implemented)")
     .addHelpText("after", BROWSER_CONTRACT)
     .action(async (opts) => {
+      if (opts.passwordStdin && (!opts.password || opts.token !== undefined || opts.browser || opts.managed || opts.otp || opts.custom)) {
+        throw new Error("--password-stdin requires --password as the only login method");
+      }
+      if (opts.passwordStdin && opts.pass !== undefined) {
+        throw new Error("--password-stdin cannot be combined with --pass");
+      }
       if (opts.managed && [opts.token !== undefined, opts.password, opts.browser, opts.otp, opts.custom].some(Boolean)) {
         throw new Error("--managed must be the only login method");
       }
@@ -66,8 +96,11 @@ export function registerLogin(program: Command): void {
       } else if (opts.token) {
         session = loginWithToken(opts.token, opts.refresh);
       } else if (opts.password) {
-        if (!opts.email || !opts.pass) throw new Error("--password requires --email and --pass");
-        session = await loginWithPassword(app, opts.email, opts.pass);
+        if (!opts.email || (!opts.passwordStdin && !opts.pass)) {
+          throw new Error("--password requires --email and either --pass or --password-stdin");
+        }
+        const password = opts.passwordStdin ? await readPasswordFromStdin() : opts.pass;
+        session = await loginWithPassword(app, opts.email, password);
       } else if (opts.browser) {
         session = await loginWithBrowser(app, {
           port: opts.port ? Number(opts.port) : 8976,

@@ -75,10 +75,16 @@ superun -e <debug|production> <命令>                          本次命令临�
 ```
 superun login --browser                          通过项目 OAuth 2.1 服务器登录(PKCE)
 superun login --token <jwt> [--refresh <jwt>]    使用已有 access token
-superun login --password --email <e> --pass <p>  邮箱与密码(GoTrue)
+superun login --password --email <e> --password-stdin  宿主安全凭据通道输入密码(GoTrue)
 superun whoami                                    解码当前会话的 JWT claims
+superun whoami --verify --json                    向项目认证服务核验非匿名用户
 superun logout                                    清除本地会话
 ```
+
+密码必须由宿主直接注入，不经过对话、模型上下文、命令行参数或工具日志。
+`--password-stdin` 本身不提供安全凭据通道，不能用 `echo` 拼接明文密码；宿主没有保密输入时，使用浏览器或 managed 登录。
+原有 `--pass` 参数保留供已有调用方使用，Agent 接入指令不再使用它。
+有登录功能的项目先核验用户身份，再完成一次真实只读查询；无登录项目仍按公开权限查询。单独返回空数组不能证明用户已登录。
 
 ### 维护
 

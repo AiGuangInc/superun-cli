@@ -11,6 +11,8 @@ export interface RequestOpts {
   /** 为 true 且有 session 时附 Authorization: Bearer */
   auth?: boolean;
   query?: Record<string, string | undefined>;
+  signal?: AbortSignal;
+  redirect?: RequestRedirect;
 }
 
 export interface ApiResult {
@@ -130,7 +132,11 @@ export async function request(app: AppConfig, session: Session | null, opts: Req
     };
     if (opts.auth && sess?.access_token) headers.authorization = `Bearer ${sess.access_token}`;
     requestSent = true;
-    return fetch(url, { method: opts.method ?? "GET", headers, body: bodyStr });
+    return fetch(url, {
+      method: opts.method ?? "GET", headers, body: bodyStr,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(opts.redirect ? { redirect: opts.redirect } : {}),
+    });
   };
 
   // ① 主动续期:过期前(含已过期)先换新
